@@ -1,0 +1,9 @@
+{
+  "name": "La tua app di allenamento",
+  "short_name": "Allenamento",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#0B0B0C",
+  "background_color": "#0B0B0C",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

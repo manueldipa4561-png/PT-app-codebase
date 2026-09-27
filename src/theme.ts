@@ -156,7 +156,7 @@ export function themeVars(spec: TemplateSpec, theme: Theme, dark: boolean): Reco
     '--display-transform': spec.display.transform,
     '--display-style': spec.display.style,
     '--display-leading': String(spec.display.leading),
-    'color-scheme': dark ? 'dark' : 'light',
+    colorScheme: dark ? 'dark' : 'light',
   };
 }
 
