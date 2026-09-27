@@ -85,6 +85,8 @@ export interface DemoApi extends Api {
   setActor(userId: string | null): void;
   reset(): void;
   upsertTrainer(t: DemoTrainer): void;
+  /** Demo brand preview: a new trainer with a copy of another trainer's calendar, clients and shop. */
+  cloneTrainer(fromId: string, t: DemoTrainer): void;
 }
 
 const STORAGE_KEY = 'pt-demo';
@@ -199,6 +201,36 @@ export function createDemoApi(opts: DemoOptions = {}): DemoApi {
       const i = db.trainers.findIndex((x) => x.id === t.id);
       if (i >= 0) db.trainers[i] = t;
       else db.trainers.push(t);
+      save();
+    },
+    cloneTrainer(fromId, t) {
+      if (db.trainers.some((x) => x.id === t.id)) return api.upsertTrainer(t);
+      const id = (old: string | null | undefined) => (old ? `${old}~${t.id}` : old ?? null);
+      const own = <T extends { trainerId: string }>(xs: T[]) => xs.filter((x) => x.trainerId === fromId);
+      db.trainers.push(t);
+      if (!db.users.some((u) => u.id === t.ownerUserId)) db.users.push({ id: t.ownerUserId, email: `${t.slug}@example.com` });
+      db.sessionTypes.push(...own(db.sessionTypes).map((x) => ({ ...x, id: id(x.id)!, trainerId: t.id })));
+      db.availability.push(...own(db.availability).map((x) => ({ ...x, id: id(x.id)!, trainerId: t.id, sessionTypeId: id(x.sessionTypeId) })));
+      db.timeOff.push(...own(db.timeOff).map((x) => ({ ...x, id: id(x.id)!, trainerId: t.id })));
+      db.clients.push(...own(db.clients).map((x) => ({ ...x, id: id(x.id)!, trainerId: t.id })));
+      db.bookings.push(...own(db.bookings).map((x) => ({ ...x, id: id(x.id)!, trainerId: t.id, clientId: id(x.clientId)!, sessionTypeId: id(x.sessionTypeId)! })));
+      db.packs.push(...own(db.packs).map((x) => ({ ...x, id: id(x.id)!, trainerId: t.id, clientId: id(x.clientId)!, opId: id(x.opId)! })));
+      db.referrals.push(
+        ...own(db.referrals).map((x) => ({ ...x, id: id(x.id)!, trainerId: t.id, referrerClientId: id(x.referrerClientId)!, referredClientId: id(x.referredClientId)! })),
+      );
+      db.ledger.push(
+        ...own(db.ledger).map((x) => ({
+          ...x,
+          id: id(x.id)!,
+          trainerId: t.id,
+          clientId: id(x.clientId)!,
+          bookingId: id(x.bookingId),
+          packId: id(x.packId),
+          referralId: id(x.referralId),
+          opId: id(x.opId),
+        })),
+      );
+      db.products.push(...own(db.products).map((x) => ({ ...x, id: id(x.id)!, trainerId: t.id })));
       save();
     },
 
