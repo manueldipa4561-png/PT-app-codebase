@@ -1,0 +1,43 @@
+{
+  "name": "pt-app-codebase",
+  "version": "0.1.0",
+  "description": "One codebase, one branded app per personal trainer",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/domain.test.ts tests/demo.test.ts",
+    "test:sql": "node --test tests/sql.test.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/manueldipa4561-png/PT-app-codebase.git"
+  },
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/manueldipa4561-png/PT-app-codebase/issues"
+  },
+  "homepage": "https://github.com/manueldipa4561-png/PT-app-codebase#readme",
+  "private": "true",
+  "dependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource/barlow": "^5.3.0",
+    "@fontsource/barlow-condensed": "^5.3.0",
+    "@fontsource/cormorant-garamond": "^5.3.0",
+    "@phosphor-icons/react": "^2.1.10",
+    "@supabase/supabase-js": "^2.117.2",
+    "motion": "^13.4.4",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@types/node": "^26.6.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  }
+}
