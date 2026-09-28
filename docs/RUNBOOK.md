@@ -20,13 +20,13 @@ Rollback:
 
 Before you start: the trainer paid the first month and signed the terms and the DPA ([GDPR.md](GDPR.md)).
 
-1. **Look (10 min).** With the trainer, create their brand in the demo panel: name, look, colors, logo. Copy the theme JSON.
-2. **Files (5 min).** Upload their logo and cover photo to the public Storage bucket. Put the `https://` URLs in the theme.
+1. **Look (10 min).** With the trainer, create their brand in the demo panel: name, look, colors, logo. Click **Copia SQL di attivazione**.
+2. **Files (5 min).** Upload their logo and cover photo to the public Storage bucket. Put the `https://` URLs in the JSON's theme.
 3. **Domain decision (5 min).** A subdomain of our app domain, or their own `app.<their-domain>`. Decide now: moving later signs every client out, and they must reinstall.
-4. **Database (15 min).** Insert the trainer, session types, availability, and products for the pro and store plans. The SQL is in the [README](../README.md), "Add a trainer".
+4. **Database (15 min).** Fill in the go-live SQL (slug, the trainer's login email, WhatsApp, their session types, weekly hours, products for the pro and store plans) and run it in the SQL editor. Details: [README](../README.md), "Add a trainer".
 5. **Domain (10 min).** Add the Netlify domain alias, and the DNS record if needed. Wait until Netlify shows HTTPS as active.
 6. **Page head (2 min).** Open `view-source:https://<their app>` in the browser. The title, theme color and manifest must be the trainer's.
-7. **Owner (5 min).** The trainer signs in once on their app, you set `owner_user_id` (README, step 6), and they open `/admin`.
+7. **Owner (2 min).** The trainer opens `https://<their app>/admin` and signs in with the email in `ownerEmail`. The admin opens: the link to their login is automatic.
 8. **Pages (5 min).** Their privacy page and referral rules page are online ([GDPR.md](GDPR.md)).
 9. **Handover (10 min).** Show the trainer the admin: book for a client, block time, "pack paid", attended or no-show, invites, the CSV export. Remind them: no health information in notes. Then they share their app link with their clients.
 
@@ -71,9 +71,13 @@ Before you start: the trainer paid the first month and signed the terms and the 
                      where o.user_id = g.id and t.slug <> 'mario-rossi')
      and not exists (select 1 from public.trainers t where t.owner_user_id = g.id and t.slug <> 'mario-rossi');
    ```
-3. **Delete the data as the DPA says**, on the date it sets. One statement removes the trainer and everything that belongs to them: clients, bookings, packs, ledger, referrals, session types, products.
+3. **Delete the data as the DPA says**, on the date it sets, after step 1's exports are saved. Packs and the credit ledger are accounting records, so the database refuses to delete a trainer who still has them: remove them on purpose first. The last statement removes the trainer and everything else that belongs to them: clients, bookings, referrals, session types, availability, products.
    ```sql
+   begin;
+   delete from public.credit_ledger where trainer_id = (select id from public.trainers where slug = 'mario-rossi');
+   delete from public.pack_purchases where trainer_id = (select id from public.trainers where slug = 'mario-rossi');
    delete from public.trainers where slug = 'mario-rossi';
+   commit;
    ```
    Then delete the saved logins (Authentication > Users) and the trainer's files in Storage. The deleted rows leave the daily backups within 7 days.
 4. **Remove the Netlify domain alias.** Never leave it: a dead alias can block the certificate renewal for every trainer (see "Netlify facts"). For their own domain, ask the trainer to delete the CNAME too.
@@ -98,6 +102,22 @@ Before you start: the trainer paid the first month and signed the terms and the 
 3. **Brevo.** Open the transactional email logs: was it sent, delivered, bounced or blocked? The free plan sends 300 emails a day.
 4. **Supabase.** Authentication > Rate Limits: 30 emails an hour by default with custom SMTP. Logs > Auth shows SMTP errors.
 5. **Templates.** Both **Magic Link** and **Confirm signup** must show `{{ .Token }}`. A new client who gets a link instead of a code means Confirm signup was missed.
+
+### The trainer signs in but does not see the admin
+
+The admin belongs to the login whose confirmed email matches the trainer's `owner_email`.
+
+1. **Right address?** Check that they signed in with exactly that email:
+   ```sql
+   select slug, owner_email, owner_user_id from public.trainers where slug = 'mario-rossi';
+   ```
+2. **Wrong address in the trainer row:** fix `ownerEmail` in their go-live JSON and run it again. A login that already exists is linked at once.
+3. **Still empty `owner_user_id`:** the login exists but its email was never confirmed (they never typed a code). Ask them to sign in again with the code. As a last resort, link it by hand:
+   ```sql
+   update public.trainers
+      set owner_user_id = (select id from auth.users where lower(email) = 'mario@example.com')
+    where slug = 'mario-rossi';
+   ```
 
 ### A client says their balance is wrong
 
