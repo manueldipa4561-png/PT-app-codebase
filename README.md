@@ -38,7 +38,7 @@ With no environment variables, the app runs in demo mode: the whole backend runs
   - switch trainer,
   - switch view: client, trainer (the admin at `/admin`), or a signed-out friend opening an invite link,
   - create a brand live: type a trainer's name, pick a look, colors, a cover photo, a logo and a plan,
-  - copy the theme JSON. You use it when you onboard that trainer,
+  - copy the go-live SQL: one statement that creates that trainer in Supabase ("Add a trainer" below),
   - reset the demo data.
 
 Demo mode turns off as soon as `VITE_SUPABASE_URL` is set. To run locally against a real project, copy `.env.example` to `.env` and fill in the two `VITE_SUPABASE_` values.
@@ -82,110 +82,86 @@ The rules exist twice: in SQL (production) and in TypeScript (demo). When you ch
 
 ## Go live
 
-Do these once, in this order.
+Everything in the code is ready: the only thing left is the Supabase project and its settings. Do these once, in this order (about 45 minutes).
 
-1. **Supabase project.** Create it in an **EU region** (for example Frankfurt). Move it to the Pro plan before the first paying trainer: Pro has daily backups, free projects have none and pause when idle.
-2. **Custom SMTP.** Supabase's built-in email is for testing only. Open a Brevo account (EU, free up to 300 emails a day) and authenticate your sending domain there (Brevo gives you the DNS records). Then fill in Authentication > SMTP Settings in Supabase: host `smtp-relay.brevo.com`, port 587, your Brevo SMTP login and SMTP key.
-3. **Email templates.** Clients sign in with a 6-digit code, not a link: a link opens Safari, not the home-screen app. In Authentication > Email Templates, edit both **Magic Link** and **Confirm signup**: remove `{{ .ConfirmationURL }}` and show the code with `{{ .Token }}`. Confirm signup matters because a first-time sign-in gets that template.
-4. **Rate limits.** With custom SMTP, Supabase sends 30 emails an hour by default. Raise it in Authentication > Rate Limits, or one busy launch day runs out.
-5. **Database.** Apply the migration with the Supabase CLI. No Docker needed.
+1. **Supabase project.** Create it at supabase.com in an **EU region** (for example Frankfurt). Save the database password. Move to the Pro plan before the first paying trainer: Pro has daily backups, free projects have none and pause when idle.
+2. **Database.** Pick one way:
+   - **SQL editor (simplest):** open `supabase/migrations/20260928000000_init.sql` in this repo, copy all of it, paste it into Supabase > SQL Editor > New query, and click Run. It should end with "Success. No rows returned".
+   - **CLI:** `npx supabase init` (once, answer N to its questions, commit `supabase/config.toml`), `npx supabase login`, `npx supabase link --project-ref <project-ref>`, `npx supabase db push`. The project ref is the part before `.supabase.co` in the project URL.
+3. **Authentication > Sign In / Providers > Email.** Keep **Email** enabled, **Allow new users to sign up** on, and **Confirm email on** (the default). Confirm email is required: a trainer becomes the owner of their admin, and a client takes over the record their trainer created, only through a confirmed email. Keep the **email OTP length at 6** digits (the app's code field has 6).
+4. **Custom SMTP.** Supabase's built-in email is for testing only (a few emails an hour). Open a Brevo account (EU, free up to 300 emails a day) and authenticate your sending domain there (Brevo gives you the DNS records). Then fill in Authentication > Emails > SMTP Settings: host `smtp-relay.brevo.com`, port 587, your Brevo SMTP login and SMTP key, a sender like `accesso@<your-domain>`.
+5. **Email templates** (Authentication > Emails > Templates). Clients sign in with a 6-digit code, not a link: a link opens the browser, not the home-screen app. Replace the body of both **Magic Link** and **Confirm signup** with this (a first-time sign-in gets Confirm signup):
+   ```html
+   <h2>Il tuo codice di accesso</h2>
+   <p>Scrivi questo codice nell'app per entrare:</p>
+   <p style="font-size:32px;font-weight:700;letter-spacing:6px">{{ .Token }}</p>
+   <p>Vale per un'ora. Se non l'hai chiesto tu, ignora questa email.</p>
    ```
-   npx supabase init
-   npx supabase login
-   npx supabase link --project-ref <project-ref>
-   npx supabase db push
-   ```
-   `init` runs once: it adds `supabase/config.toml` (answer N to its questions, then commit the file). The project ref is the part before `.supabase.co` in the project URL. `link` asks for the database password you chose when you created the project.
-6. **Netlify environment variables** (Site configuration > Environment variables). The values are in the Supabase dashboard, Project Settings.
-   - `VITE_SUPABASE_URL`: the project URL
-   - `VITE_SUPABASE_ANON_KEY`: the anon (public) key
-   - `SUPABASE_URL` and `SUPABASE_ANON_KEY`: the same two values, read on the server by the edge function
-   - `VITE_APP_BASE_DOMAIN` (optional): the domain whose subdomains are trainer slugs, for example `app.example.it`
+   Subject for both: `Il tuo codice di accesso`.
+6. **Rate limits** (Authentication > Rate Limits). With custom SMTP, Supabase sends 30 emails an hour by default. Raise it (for example 100), or one busy launch day runs out.
+7. **Netlify environment variables** (Site configuration > Environment variables). The values are in Supabase > Project Settings > API Keys and Data API.
+   - `VITE_SUPABASE_URL` and `SUPABASE_URL`: the project URL, `https://<ref>.supabase.co`
+   - `VITE_SUPABASE_ANON_KEY` and `SUPABASE_ANON_KEY`: the public key, either the **publishable** key (`sb_publishable_...`) or the legacy **anon** key. Both work.
+   - `VITE_APP_BASE_DOMAIN` and `APP_BASE_DOMAIN` (optional): the domain whose subdomains are trainer slugs, for example `app.example.it`
 
-   The service_role key never goes into Netlify, the repo or the frontend.
-7. **Deploy.** Push to the main branch, or start a deploy in Netlify. `VITE_` variables are baked in at build time: after changing one, deploy again.
+   The secret / service_role key never goes into Netlify, the repo or the frontend.
+8. **Deploy.** Push to the main branch, or start a deploy in Netlify. `VITE_` variables are baked in at build time: after changing one, deploy again. With these variables set the demo turns off: the site serves real trainers only.
+9. **First trainer and smoke test.** Add a trainer (next section). To try it before any real domain, put your Netlify address in the JSON (`"domain": "<your-site>.netlify.app"`) and run it. Then, on a phone: open the site, sign in with a real email (the code must arrive, not in spam), join, and book. Open `/admin` signed in with the trainer's email: you see the trainer admin. Mark a pack paid and watch the client's balance change.
 
 From now on, database changes go out before the frontend. See [docs/RUNBOOK.md](docs/RUNBOOK.md), "Deploy order".
 
 ## Add a trainer
 
-The full onboarding checklist (under an hour) is in [docs/RUNBOOK.md](docs/RUNBOOK.md). This is the database part. Run it in the Supabase SQL editor and replace `mario-rossi` with the trainer's slug.
+One SQL statement creates a trainer with everything their app needs. The full onboarding checklist (under an hour) is in [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
-**1. The trainer row.** Build their look in the demo panel and copy the theme JSON: it holds the slug, name, tagline, template, plan and theme. Two things to replace in the theme: the logo (an uploaded logo stays in the browser and is left out) and the cover (a demo photo). Upload the trainer's own logo and cover to a public Supabase Storage bucket (for example `brand`) and use those URLs. The database accepts `https://` URLs only.
-
-```sql
-insert into public.trainers (slug, name, tagline, template, theme, plan, whatsapp, instagram)
-values (
-  'mario-rossi',
-  'Mario Rossi PT',
-  'Personal training a Bologna.',
-  'energy',
-  '{"brand": "#CBF24A", "accent": "#FF6A2B", "mode": "dark",
-    "logo": "https://<ref>.supabase.co/storage/v1/object/public/brand/mario-logo.png",
-    "cover": "https://<ref>.supabase.co/storage/v1/object/public/brand/mario-cover.jpg"}',
-  'web',
-  '393331234567',
-  'https://instagram.com/mariorossipt'
-);
-```
-
-- `slug`: lowercase letters, digits and hyphens. It is the subdomain and the `?t=` key.
-- `template`: `studio`, `energy` or `luxe`. `plan`: `web`, `pro` or `store`. `whatsapp`: digits only, with the country code.
-- Everything else has a default: time zone Europe/Rome, 30-minute slot steps, 2 hours minimum notice, bookings up to 28 days ahead, a 24-hour cancellation window, 1 bonus session each for referrals. Change any of them later with an `update`.
-
-**2. Session types.** `credits` is what one booking costs (0 = free). `capacity` above 1 makes it a small group. Keep names neutral, with no health data: "Personal 1:1" yes, "Post-injury rehab" no.
+**1. Build it in the demo.** With the trainer, create their brand in the demo panel (name, look, colors, cover, logo, plan), or pick the sample trainer closest to them. Click **Copia SQL di attivazione**. You get a statement like this:
 
 ```sql
-with t as (select id from public.trainers where slug = 'mario-rossi')
-insert into public.session_types (trainer_id, name, description, minutes, capacity, credits, sort)
-select t.id, v.* from t, (values
-  ('Personal 1:1',         'Programma su misura.',             60, 1, 1, 0),
-  ('Small group',          'Fino a quattro persone.',          60, 4, 1, 1),
-  ('Valutazione iniziale', 'Test di partenza e obiettivi.',    45, 1, 0, 2)
-) as v(name, description, minutes, capacity, credits, sort);
+select app_private.onboard_trainer($json$
+{
+  "slug": "mario-rossi",
+  "name": "Mario Rossi PT",
+  "tagline": "Personal training a Bologna.",
+  "template": "energy",
+  "plan": "pro",
+  "theme": { "brand": "#CBF24A", "accent": "#FF6A2B", "mode": "dark",
+             "logo": "https://<ref>.supabase.co/storage/v1/object/public/brand/mario-logo.png",
+             "cover": "https://<ref>.supabase.co/storage/v1/object/public/brand/mario-cover.jpg" },
+  "ownerEmail": "mario@example.com",
+  "whatsapp": "+39 333 123 4567",
+  "timezone": "Europe/Rome",
+  "cancelWindowHours": 24,
+  "sessionTypes": [
+    { "name": "Personal 1:1", "description": "Programma su misura.", "minutes": 60, "capacity": 1, "credits": 1 },
+    { "name": "Small group", "minutes": 60, "capacity": 4, "credits": 1 },
+    { "name": "Valutazione iniziale", "minutes": 45, "capacity": 1, "credits": 0 }
+  ],
+  "availability": [
+    { "weekday": 1, "start": "07:00", "end": "10:00", "location": "Palestra Centro" },
+    { "weekday": 3, "start": "19:00", "end": "20:00", "location": "Palestra Centro", "sessionType": "Small group" }
+  ],
+  "products": [
+    { "name": "Kit elastici", "priceCents": 2490, "paymentUrl": "https://buy.stripe.com/<link>" }
+  ]
+}
+$json$::jsonb);
 ```
 
-**3. Availability.** One row per weekly window, in the trainer's local time. `weekday` is ISO: **1 = Monday**, 7 = Sunday. The `::time` on the first row sets the type for the whole list.
+**2. Fill it in.** Replace every `<<placeholder>>` (the statement refuses to run while one is left) and adjust to the trainer's real week:
+- `slug`: lowercase letters, digits and hyphens. It is their subdomain. `ownerEmail`: the email the trainer will sign in with.
+- `logo` and `cover`: an uploaded logo stays in the browser and is left out, and the cover is a demo photo. Upload the trainer's own files to a public Supabase Storage bucket (for example `brand`) and use those `https://` URLs.
+- `sessionTypes`: `credits` is what one booking costs (0 = free), `capacity` above 1 makes it a small group. Keep names free of health data: "Personal 1:1" yes, "Post-injury rehab" no.
+- `availability`: one entry per weekly window, in the trainer's local time. `weekday` is ISO: **1 = Monday**, 7 = Sunday. `sessionType` (optional) keeps a window for one session type only, such as a group class.
+- `products` (pro and store plans): each "Buy" opens a Stripe Payment Link the trainer creates in their own Stripe account. Use `[]` for none.
+- Optional, with these defaults: `domain` (their own domain, see step 4), `instagram`, `locale` "it", `currency` "EUR", `slotStepMinutes` 30, `minNoticeHours` 2, `bookingHorizonDays` 28, `cancelWindowHours` 24, `bonusReferrer` 1, `bonusReferred` 1.
 
-```sql
-with t as (select id from public.trainers where slug = 'mario-rossi')
-insert into public.availability (trainer_id, weekday, start_time, end_time, location)
-select t.id, v.* from t, (values
-  (1, '07:00'::time, '10:00'::time, 'Palestra Centro'),
-  (1, '17:00',       '21:00',       'Palestra Centro'),
-  (3, '17:00',       '21:00',       'Palestra Centro'),
-  (6, '09:00',       '12:00',       'Parco della Montagnola')
-) as v(weekday, start_time, end_time, location);
-```
+**3. Run it** in the Supabase SQL editor. The result shows what was saved, for example `{"owner": "links at the trainer's first sign-in", "session_types": 3, "availability_windows": 2, "products": 1}`. To change anything later, edit the JSON and run it again: it updates the trainer. Session types and products left out are retired, never deleted (past bookings keep them), and the weekly availability is replaced.
 
-To keep a window for one session type only (a group class), also fill its `session_type_id`.
-
-**4. Products (pro and store plans only).** Each "Buy" button opens a Stripe Payment Link that the trainer creates in their own Stripe account.
-
-```sql
-insert into public.products (trainer_id, name, description, price_cents, payment_url, sort)
-select id, 'Kit elastici', 'Ritiro alla prossima sessione.', 2490, 'https://buy.stripe.com/<link>', 0
-from public.trainers where slug = 'mario-rossi';
-```
-
-**5. Point the domain.** Pick the final one now: moving a trainer to another domain later signs every client out, and they must reinstall.
-
+**4. Point the domain.** Pick the final one now: moving a trainer to another domain later signs every client out, and they must reinstall.
 - **Subdomain** (day 1, no DNS work for the trainer): in Netlify, Domain management > Add a domain alias: `mario-rossi.<VITE_APP_BASE_DOMAIN>`. If that domain's DNS is not on Netlify, add a CNAME record `mario-rossi` pointing to `<your-site>.netlify.app`.
-- **Their own domain**: the trainer adds a CNAME `app` pointing to `<your-site>.netlify.app` at their DNS provider. Add `app.mariorossi.it` as a domain alias in Netlify, then:
+- **Their own domain**: the trainer adds a CNAME `app` pointing to `<your-site>.netlify.app` at their DNS provider. Add `app.mariorossi.it` as a domain alias in Netlify, put `"domain": "app.mariorossi.it"` in the JSON and run it again.
 
-```sql
-update public.trainers set domain = 'app.mariorossi.it' where slug = 'mario-rossi';
-```
-
-**6. Make the trainer the owner.** The trainer opens their app and signs in once with the email code. They stop at the join form (they are the trainer, not a client). Then:
-
-```sql
-update public.trainers
-set owner_user_id = (select id from auth.users where lower(email) = lower('mario@example.com'))
-where slug = 'mario-rossi';
-```
-
-They open `https://<their app>/admin` and see the trainer admin. Send them that link.
+**5. The trainer signs in.** Send them `https://<their app>/admin`. They sign in with the email code, using the `ownerEmail` address, and land in their admin: the owner link is automatic, there is nothing to run.
 
 ## Before the first real client
 
