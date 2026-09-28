@@ -7,11 +7,11 @@ Deferred work from the CEO review and the outside review (Codex). Each item says
 
 ## P1
 
-### Run the SQL suite on hosted Supabase
-- **What:** run the scenarios in `tests/scenarios.ts` against a disposable hosted Supabase project, not only PGlite.
-- **Why:** PGlite is Postgres, not Supabase. On hosted Supabase the `auth` schema, roles and grants are the real ones, not the stub in `tests/sql.test.ts`. Example: `delete_my_account` may not be allowed to delete from `auth.users` there. PGlite also runs one connection, so the per-trainer row lock is never raced.
-- **Priority:** P1, before the first real client.
-- **Effort:** M. `tests/sql.test.ts` needs a second way to connect (a Postgres driver and a connection string) that skips the stub.
+### Confirm on hosted Supabase what the local stand-in cannot
+- **What:** `npm run test:api` already runs `src/supabase.ts` through supabase-js against a local stand-in for Supabase's Auth and Data API (`tests/fake-supabase.ts`) with the real migration. On the first real project, confirm by hand what the stand-in does not model: session refresh after an hour, the publishable (`sb_publishable_`) key, the Confirm signup and Magic Link emails showing the 6-digit code, `delete_my_account` removing the login (else the RUNBOOK warning path), the `link_owner` trigger on `auth.users` (the trainer lands in `/admin` after the first code), and two phones booking the last place at the same moment.
+- **Why:** PGlite is Postgres, not Supabase: one connection (locks are never raced), a superuser `postgres`, and a partial `auth` schema.
+- **Priority:** P1, before the first real client. The smoke test in README "Go live", step 9, covers most of it.
+- **Effort:** S by hand. M to automate: a mode of `tests/supabase-api.test.ts` that points at a disposable project instead of the stand-in.
 - **Depends on:** a throwaway Supabase project (the free plan is enough).
 
 ### Staging Supabase project

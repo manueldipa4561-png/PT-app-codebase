@@ -39,9 +39,13 @@ export function Profile() {
   }, []);
 
   async function signOut() {
-    await api.signOut();
-    navigate('/');
-    await refresh();
+    try {
+      await api.signOut();
+      navigate('/');
+      await refresh();
+    } catch (e) {
+      toast(errorText(t, e instanceof AppError ? e.code : 'generic'), 'error');
+    }
   }
 
   async function remove() {
