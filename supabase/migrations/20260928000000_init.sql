@@ -11,8 +11,11 @@ alter default privileges in schema app_private revoke execute on functions from 
 create table public.trainers (
   id uuid primary key default gen_random_uuid(),
   slug text not null unique check (slug ~ '^[a-z0-9][a-z0-9-]{1,39}$'),
-  domain text unique check (domain is null or domain ~ '^[a-z0-9.-]{4,253}$'),
+  -- a domain always has a dot and a slug never does: one key can never match two trainers
+  domain text unique check (domain is null or (char_length(domain) <= 253 and domain ~ '^[a-z0-9-]+(\.[a-z0-9-]+)+$')),
   owner_user_id uuid references auth.users (id) on delete set null,
+  -- the trainer's login email: whoever signs in with it becomes the owner (see link_owner below)
+  owner_email text check (owner_email is null or (owner_email = lower(owner_email) and owner_email ~ '^[^\s@]+@[^\s@]+\.[^\s@]{2,}$')),
   name text not null check (char_length(name) between 1 and 80),
   tagline text not null default '' check (char_length(tagline) <= 140),
   plan text not null default 'web' check (plan in ('web', 'pro', 'store')),
@@ -26,7 +29,8 @@ create table public.trainers (
   ),
   whatsapp text check (whatsapp is null or whatsapp ~ '^\+?[0-9]{6,15}$'),
   instagram text check (instagram is null or instagram ~ '^https://'),
-  timezone text not null default 'Europe/Rome',
+  -- an unknown zone fails here, when it is saved, not later on the trainer's booking page
+  timezone text not null default 'Europe/Rome' check ((timestamp '2000-01-01 12:00' at time zone timezone) is not null),
   locale text not null default 'it' check (locale in ('it', 'en')),
   currency text not null default 'EUR' check (currency ~ '^[A-Z]{3}$'),
   slot_step_minutes int not null default 30 check (slot_step_minutes in (15, 20, 30, 60)),
@@ -38,6 +42,7 @@ create table public.trainers (
   terms_version int not null default 1,
   created_at timestamptz not null default now()
 );
+create index trainers_owner on public.trainers (owner_user_id) where owner_user_id is not null;
 
 create table public.clients (
   id uuid primary key default gen_random_uuid(),
@@ -114,12 +119,18 @@ create table public.bookings (
 );
 create index bookings_trainer_start on public.bookings (trainer_id, starts_at);
 create index bookings_client_start on public.bookings (client_id, starts_at);
+-- the sessions that hold a place: overlap checks and group capacity read only these
+create index bookings_trainer_active on public.bookings (trainer_id, starts_at) include (ends_at, session_type_id)
+  where status in ('booked', 'attended', 'no_show');
+create index bookings_type_start on public.bookings (session_type_id, starts_at) where status in ('booked', 'attended', 'no_show');
 -- A retried request can never book the same client twice at the same time.
 create unique index bookings_one_active_per_client_start on public.bookings (client_id, starts_at) where status = 'booked';
 
+-- Packs and the ledger are accounting records: deleting a trainer or a client never takes
+-- them along silently (on delete restrict). Offboarding deletes them on purpose (RUNBOOK).
 create table public.pack_purchases (
   id uuid primary key default gen_random_uuid(),
-  trainer_id uuid not null references public.trainers (id) on delete cascade,
+  trainer_id uuid not null references public.trainers (id) on delete restrict,
   client_id uuid not null,
   credits int not null check (credits between 1 and 200),
   price_cents int check (price_cents between 0 and 1000000),
@@ -131,8 +142,9 @@ create table public.pack_purchases (
   voided_at timestamptz,
   voided_by uuid,
   unique (trainer_id, id),
-  foreign key (trainer_id, client_id) references public.clients (trainer_id, id) on delete cascade
+  foreign key (trainer_id, client_id) references public.clients (trainer_id, id) on delete restrict
 );
+create index pack_purchases_client on public.pack_purchases (trainer_id, client_id);
 
 create table public.referrals (
   id uuid primary key default gen_random_uuid(),
@@ -152,7 +164,7 @@ create index referrals_referrer on public.referrals (referrer_client_id);
 
 create table public.credit_ledger (
   id uuid primary key default gen_random_uuid(),
-  trainer_id uuid not null references public.trainers (id) on delete cascade,
+  trainer_id uuid not null references public.trainers (id) on delete restrict,
   client_id uuid not null,
   delta int not null check (delta <> 0 and delta between -200 and 200),
   reason text not null check (reason in ('pack', 'pack_void', 'booking', 'refund', 'referral', 'referral_reversal', 'manual')),
@@ -163,7 +175,7 @@ create table public.credit_ledger (
   op_id uuid unique,
   created_by uuid,
   created_at timestamptz not null default now(),
-  foreign key (trainer_id, client_id) references public.clients (trainer_id, id) on delete cascade
+  foreign key (trainer_id, client_id) references public.clients (trainer_id, id) on delete restrict
 );
 create index credit_ledger_client on public.credit_ledger (client_id);
 create index credit_ledger_trainer on public.credit_ledger (trainer_id, created_at);
@@ -482,9 +494,10 @@ begin
   if not found then raise exception 'NOT_FOUND'; end if;
   if not app_private.is_owner(cl.trainer_id) then raise exception 'NOT_ALLOWED'; end if;
   if p_delta is null or p_delta = 0 or p_delta < -200 or p_delta > 200 or p_op_id is null then raise exception 'INVALID_INPUT'; end if;
-  if exists (select 1 from public.credit_ledger where op_id = p_op_id) then return; end if;
+  -- a retry, even one racing the first request, adds nothing
   insert into public.credit_ledger (trainer_id, client_id, delta, reason, note, op_id, created_by)
-  values (cl.trainer_id, cl.id, p_delta, 'manual', left(nullif(trim(p_note), ''), 140), p_op_id, auth.uid());
+  values (cl.trainer_id, cl.id, p_delta, 'manual', left(nullif(trim(p_note), ''), 140), p_op_id, auth.uid())
+  on conflict (op_id) do nothing;
 end $$;
 
 create function public.reverse_referral(p_referral uuid) returns void
@@ -514,7 +527,8 @@ declare
   v_referrer public.clients;
 begin
   if auth.uid() is null then raise exception 'NOT_ALLOWED'; end if;
-  select * into t from public.trainers where id = p_trainer;
+  -- the lock makes a double-submitted join return the first one's client, not an error
+  select * into t from public.trainers where id = p_trainer for update;
   if not found then raise exception 'NOT_FOUND'; end if;
   select * into c from public.clients where trainer_id = t.id and user_id = auth.uid() and deleted_at is null;
   if found then return c; end if;
@@ -584,8 +598,10 @@ begin
    where client_id = v_client and status = 'booked' and starts_at > now();
   update public.clients set name = 'Deleted client', email = null, phone = null, user_id = null, deleted_at = now()
    where id = v_client;
-  -- one login serves every trainer app on this platform: remove it only when unused
-  if not exists (select 1 from public.clients where user_id = v_user) then
+  -- one login serves every trainer app on this platform: remove it only when unused,
+  -- and never a trainer's own login (their admin would lose its owner)
+  if not exists (select 1 from public.clients where user_id = v_user)
+     and not exists (select 1 from public.trainers where owner_user_id = v_user) then
     begin
       delete from auth.users where id = v_user;
     exception when insufficient_privilege then
@@ -608,6 +624,143 @@ language sql stable security definer set search_path = '' as $$
   where t.slug = lower(trim(p_key)) or t.domain = lower(trim(p_key))
   limit 1
 $$;
+
+-- ── onboarding: run by the operator in the Supabase SQL editor ──────────────
+
+-- The trainer's login becomes the owner of their app once its email is confirmed: here when
+-- the trainer signs in for the first time, or in onboard_trainer when the login already exists.
+-- Only a confirmed email counts, so keep "Confirm email" on in Supabase Auth (README).
+create function app_private.link_owner() returns trigger
+language plpgsql security definer set search_path = '' as $$
+begin
+  if new.email is not null and new.email_confirmed_at is not null then
+    update public.trainers set owner_user_id = new.id
+     where owner_user_id is null and owner_email = lower(new.email);
+  end if;
+  return null;
+exception when others then
+  -- never block a sign-in over this: the owner can still be linked by hand (RUNBOOK)
+  raise warning 'link_owner for user %: %', new.id, sqlerrm;
+  return null;
+end $$;
+
+create trigger link_owner after insert or update of email, email_confirmed_at on auth.users
+  for each row execute function app_private.link_owner();
+
+-- One call creates or updates a trainer from the JSON the demo panel copies:
+--   select app_private.onboard_trainer($json$ { "slug": "mario-rossi", ... } $json$::jsonb);
+-- The JSON is the whole truth for that trainer, so re-run it with every field to change anything.
+-- Session types and products missing from it are retired (active = false), never deleted:
+-- past bookings keep pointing at them. The weekly availability is replaced as a whole.
+create function app_private.onboard_trainer(p jsonb) returns jsonb
+language plpgsql set search_path = '' as $$
+declare
+  t public.trainers;
+  v_email text := lower(nullif(trim(p ->> 'ownerEmail'), ''));
+  v_item jsonb;
+  v_i int;
+begin
+  if p is null or jsonb_typeof(p) <> 'object' or nullif(trim(p ->> 'slug'), '') is null or nullif(trim(p ->> 'name'), '') is null then
+    raise exception 'onboard_trainer: the JSON needs at least "slug" and "name"';
+  end if;
+  if p::text like '%<<%>>%' then
+    raise exception 'onboard_trainer: replace every <<placeholder>> in the JSON first';
+  end if;
+
+  insert into public.trainers as x (slug, name, tagline, template, plan, theme, whatsapp, instagram, domain, owner_email,
+    timezone, locale, currency, slot_step_minutes, min_notice_hours, booking_horizon_days, cancel_window_hours,
+    bonus_referrer, bonus_referred)
+  values (
+    lower(trim(p ->> 'slug')), trim(p ->> 'name'), coalesce(p ->> 'tagline', ''),
+    coalesce(p ->> 'template', 'studio'), coalesce(p ->> 'plan', 'web'), coalesce(p -> 'theme', '{"brand": "#1F4BFF"}'),
+    nullif(regexp_replace(coalesce(p ->> 'whatsapp', ''), '[\s().-]', '', 'g'), ''), nullif(trim(p ->> 'instagram'), ''),
+    lower(nullif(trim(p ->> 'domain'), '')), v_email,
+    coalesce(p ->> 'timezone', 'Europe/Rome'), coalesce(p ->> 'locale', 'it'), coalesce(p ->> 'currency', 'EUR'),
+    coalesce((p ->> 'slotStepMinutes')::int, 30), coalesce((p ->> 'minNoticeHours')::int, 2),
+    coalesce((p ->> 'bookingHorizonDays')::int, 28), coalesce((p ->> 'cancelWindowHours')::int, 24),
+    coalesce((p ->> 'bonusReferrer')::int, 1), coalesce((p ->> 'bonusReferred')::int, 1)
+  )
+  on conflict (slug) do update set
+    name = excluded.name, tagline = excluded.tagline, template = excluded.template, plan = excluded.plan,
+    theme = excluded.theme, whatsapp = excluded.whatsapp, instagram = excluded.instagram, domain = excluded.domain,
+    owner_email = excluded.owner_email,
+    -- a different owner email moves the admin to that login, or to nobody until it signs in
+    owner_user_id = case when x.owner_email is not distinct from excluded.owner_email then x.owner_user_id end,
+    timezone = excluded.timezone, locale = excluded.locale, currency = excluded.currency,
+    slot_step_minutes = excluded.slot_step_minutes, min_notice_hours = excluded.min_notice_hours,
+    booking_horizon_days = excluded.booking_horizon_days, cancel_window_hours = excluded.cancel_window_hours,
+    bonus_referrer = excluded.bonus_referrer, bonus_referred = excluded.bonus_referred
+  returning * into t;
+
+  -- a login that already exists (for example the trainer's own client account) is linked now
+  if t.owner_user_id is null and v_email is not null then
+    update public.trainers
+       set owner_user_id = (select u.id from auth.users u where lower(u.email) = v_email and u.email_confirmed_at is not null limit 1)
+     where id = t.id
+    returning * into t;
+  end if;
+
+  if jsonb_typeof(p -> 'sessionTypes') = 'array' then
+    for v_i in 0 .. jsonb_array_length(p -> 'sessionTypes') - 1 loop
+      v_item := p -> 'sessionTypes' -> v_i;
+      update public.session_types
+         set description = nullif(trim(v_item ->> 'description'), ''), minutes = (v_item ->> 'minutes')::int,
+             capacity = coalesce((v_item ->> 'capacity')::int, 1), credits = coalesce((v_item ->> 'credits')::int, 1),
+             active = true, sort = v_i
+       where trainer_id = t.id and name = trim(v_item ->> 'name');
+      if not found then
+        insert into public.session_types (trainer_id, name, description, minutes, capacity, credits, sort)
+        values (t.id, trim(v_item ->> 'name'), nullif(trim(v_item ->> 'description'), ''), (v_item ->> 'minutes')::int,
+                coalesce((v_item ->> 'capacity')::int, 1), coalesce((v_item ->> 'credits')::int, 1), v_i);
+      end if;
+    end loop;
+    update public.session_types set active = false
+     where trainer_id = t.id and name not in (select trim(e ->> 'name') from jsonb_array_elements(p -> 'sessionTypes') e);
+  end if;
+
+  if jsonb_typeof(p -> 'availability') = 'array' then
+    if exists (select 1 from jsonb_array_elements(p -> 'availability') a
+                where nullif(trim(a ->> 'sessionType'), '') is not null
+                  and not exists (select 1 from public.session_types s
+                                   where s.trainer_id = t.id and s.active and s.name = trim(a ->> 'sessionType'))) then
+      raise exception 'onboard_trainer: an availability window names a session type that is not in "sessionTypes"';
+    end if;
+    delete from public.availability where trainer_id = t.id;
+    insert into public.availability (trainer_id, weekday, start_time, end_time, location, session_type_id)
+    select t.id, (a ->> 'weekday')::int, (a ->> 'start')::time, (a ->> 'end')::time, nullif(trim(a ->> 'location'), ''),
+           (select s.id from public.session_types s where s.trainer_id = t.id and s.active and s.name = trim(a ->> 'sessionType'))
+      from jsonb_array_elements(p -> 'availability') a;
+  end if;
+
+  if jsonb_typeof(p -> 'products') = 'array' then
+    for v_i in 0 .. jsonb_array_length(p -> 'products') - 1 loop
+      v_item := p -> 'products' -> v_i;
+      update public.products
+         set description = nullif(trim(v_item ->> 'description'), ''), price_cents = (v_item ->> 'priceCents')::int,
+             image_url = nullif(trim(v_item ->> 'imageUrl'), ''), payment_url = trim(v_item ->> 'paymentUrl'),
+             active = true, sort = v_i
+       where trainer_id = t.id and name = trim(v_item ->> 'name');
+      if not found then
+        insert into public.products (trainer_id, name, description, price_cents, image_url, payment_url, sort)
+        values (t.id, trim(v_item ->> 'name'), nullif(trim(v_item ->> 'description'), ''), (v_item ->> 'priceCents')::int,
+                nullif(trim(v_item ->> 'imageUrl'), ''), trim(v_item ->> 'paymentUrl'), v_i);
+      end if;
+    end loop;
+    update public.products set active = false
+     where trainer_id = t.id and name not in (select trim(e ->> 'name') from jsonb_array_elements(p -> 'products') e);
+  end if;
+
+  return jsonb_build_object(
+    'id', t.id,
+    'slug', t.slug,
+    'owner', case when t.owner_user_id is not null then 'linked'
+                  when t.owner_email is not null then 'links at the trainer''s first sign-in'
+                  else 'none: add "ownerEmail"' end,
+    'session_types', (select count(*) from public.session_types s where s.trainer_id = t.id and s.active),
+    'availability_windows', (select count(*) from public.availability a where a.trainer_id = t.id),
+    'products', (select count(*) from public.products pr where pr.trainer_id = t.id and pr.active)
+  );
+end $$;
 
 -- ── public wrappers: "now" always comes from the database clock ─────────────
 
@@ -709,4 +862,11 @@ grant usage on schema public to anon, authenticated;
 grant select on all tables in schema public to anon, authenticated;
 revoke insert, update, delete on public.trainers, public.clients, public.bookings, public.pack_purchases,
   public.referrals, public.credit_ledger from anon, authenticated;
-grant insert, update, delete on public.session_types, public.availability, public.time_off, public.products to authenticated;
+grant insert, update, delete on public.availability, public.time_off, public.products to authenticated;
+-- a session type with bookings cannot be deleted (their history points at it): retire it with active = false
+grant insert, update on public.session_types to authenticated;
+revoke delete on public.session_types from anon, authenticated;
+
+-- Functions added by later migrations start closed: grant each one explicitly, like the ones above.
+alter default privileges in schema public revoke execute on functions from public;
+alter default privileges in schema public revoke execute on functions from anon, authenticated;
