@@ -41,7 +41,7 @@ test('the names set by Netlify’s Supabase extension switch the app to live', a
 
   assert.equal(await (await get('/manifest.webmanifest?t=giulia-ferri')).text(), 'generic');
   assert.equal(calls[0].url, 'https://ref.supabase.co/rest/v1/rpc/trainer_public');
-  assert.equal(JSON.parse(String(calls[0].init?.body)).p_key, 'marco-bellini'); // ?t= is ignored on a live site
+  assert.equal(JSON.parse(String(calls[0].init?.body)).p_key, 'demo.netlify.app'); // live: ?t= is ignored, the host is the key
   assert.deepEqual(calls[0].init?.headers, { apikey: 'sb_publishable_x', 'content-type': 'application/json' });
 });
 
