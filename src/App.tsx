@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import { CalendarBlank, CalendarPlus, Gift, House, ShoppingBag } from '@phosphor-icons/react';
 import { createApi, DEFAULT_DEMO_TRAINER, DEMO_MODE, trainerKey, type Api, type Me } from './api.ts';
@@ -132,11 +132,16 @@ function TrainerApp({ api, trainerKey: key, version }: { api: Api; trainerKey: s
   const { items, show } = useToasts();
   const systemDark = useSystemDark();
 
+  // Loads can overlap (switching trainer in the demo, a refresh during a slow one): only the
+  // latest may write, so an older response never replaces a newer trainer's data.
+  const latest = useRef(0);
   const load = useCallback(async () => {
+    const mine = ++latest.current;
     try {
       const t = await api.getTrainer(key);
       const [ty, pr, m] = await Promise.all([api.sessionTypes(t.id), api.products(t.id), api.me(t.id)]);
       const [bk, lg] = m.client ? await Promise.all([api.myBookings(t.id), api.myLedger(t.id)]) : [[], []];
+      if (mine !== latest.current) return;
       setTrainer(t);
       setTypes(ty);
       setProducts(pr);
@@ -145,6 +150,7 @@ function TrainerApp({ api, trainerKey: key, version }: { api: Api; trainerKey: s
       setLedger(lg);
       setError(null);
     } catch (e) {
+      if (mine !== latest.current) return;
       console.error('loading the trainer app failed', e);
       setError(e instanceof AppError ? e.code : 'generic');
     }
@@ -180,19 +186,39 @@ function TrainerApp({ api, trainerKey: key, version }: { api: Api; trainerKey: s
     setPath(url.pathname);
   }, []);
 
+  const setLang = useCallback((l: Locale) => {
+    setLangState(l);
+    try {
+      localStorage.setItem('pt-lang', l);
+    } catch {
+      /* private mode: the choice lasts for this visit */
+    }
+  }, []);
   const activeLang: Locale = lang ?? trainer?.locale ?? 'it';
-  const i18n = {
-    lang: activeLang,
-    t: translator(activeLang),
-    setLang: (l: Locale) => {
-      setLangState(l);
-      try {
-        localStorage.setItem('pt-lang', l);
-      } catch {
-        /* private mode: the choice lasts for this visit */
-      }
-    },
-  };
+  // Stable context values: a toast or the morph timer does not re-render every consumer.
+  const i18n = useMemo(() => ({ lang: activeLang, t: translator(activeLang), setLang }), [activeLang, setLang]);
+  const dark = trainer ? isDark(TEMPLATES[trainer.template], trainer.theme, systemDark) : false;
+  const state = useMemo<AppState | null>(
+    () =>
+      trainer && me
+        ? {
+            api,
+            trainer,
+            types,
+            products,
+            me,
+            bookings,
+            ledger,
+            balance: me.client ? balanceOf(ledger, me.client.id) : 0,
+            dark,
+            refresh: load,
+            path,
+            navigate,
+            toast: show,
+          }
+        : null,
+    [api, trainer, types, products, me, bookings, ledger, dark, load, path, navigate, show],
+  );
 
   if (error && !trainer) {
     return (
@@ -203,34 +229,17 @@ function TrainerApp({ api, trainerKey: key, version }: { api: Api; trainerKey: s
       </I18nContext.Provider>
     );
   }
-  if (!trainer || !me) return <Splash />;
+  if (!trainer || !me || !state) return <Splash />;
 
-  const spec = TEMPLATES[trainer.template];
-  const dark = isDark(spec, trainer.theme, systemDark);
-  const vars = themeVars(spec, trainer.theme, dark) as CSSProperties;
-  const state: AppState = {
-    api,
-    trainer,
-    types,
-    products,
-    me,
-    bookings,
-    ledger,
-    balance: me.client ? balanceOf(ledger, me.client.id) : 0,
-    dark,
-    refresh: load,
-    path,
-    navigate,
-    toast: show,
-  };
-
+  const vars = themeVars(TEMPLATES[trainer.template], trainer.theme, dark) as CSSProperties;
   const invite = path.startsWith('/r/') ? decodeURIComponent(path.split('/')[2] ?? '') : undefined;
   let screen: ReactNode;
   let screenKey = path;
   let tabs = false;
   if (!me.client && !(me.isOwner && path.startsWith('/admin'))) {
     screen = <Join referralCode={invite} />;
-    screenKey = 'join';
+    // a new trainer or invite starts the form over: nothing typed is sent to the wrong one
+    screenKey = `join:${trainer.id}:${invite ?? ''}`;
   } else if (path.startsWith('/admin') && me.isOwner) {
     screen = <Trainer />;
     screenKey = 'admin';
@@ -251,7 +260,7 @@ function TrainerApp({ api, trainerKey: key, version }: { api: Api; trainerKey: s
     <I18nContext.Provider value={i18n}>
       <AppContext.Provider value={state}>
         <MotionConfig reducedMotion="user">
-          <div className={morph ? 'app morph' : 'app'} data-template={trainer.template} style={vars}>
+          <div className={morph ? 'app morph' : 'app'} data-template={trainer.template} data-scheme={dark ? 'dark' : 'light'} style={vars}>
             <AnimatePresence mode="wait" initial={false}>
               <motion.main
                 key={screenKey}

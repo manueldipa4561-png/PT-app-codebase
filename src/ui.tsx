@@ -71,18 +71,21 @@ export function Sheet({ open, onClose, title, children }: { open: boolean; onClo
   const drag = useDragControls();
   const panel = useRef<HTMLDivElement>(null);
   const { t } = useI18n();
+  // Callers pass a new onClose on every render: the focus effect must run only on open/close.
+  const close = useRef(onClose);
+  close.current = onClose;
 
   useEffect(() => {
     if (!open) return;
     const before = document.activeElement as HTMLElement | null;
     panel.current?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close.current();
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
       before?.focus?.();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   return (
     <AnimatePresence>
@@ -206,11 +209,12 @@ export function Ring({ value, max, label, size = 124, stroke = 9 }: { value: num
   );
 }
 
-export function Segmented<T extends string>({ id, options, value, onChange }: { id: string; options: { value: T; label: string }[]; value: T; onChange(v: T): void }) {
+/** A row of toggle buttons, one pressed at a time. */
+export function Segmented<T extends string>({ id, label, options, value, onChange }: { id: string; label: string; options: { value: T; label: string }[]; value: T; onChange(v: T): void }) {
   return (
-    <div className="segmented" role="tablist">
+    <div className="segmented" role="group" aria-label={label}>
       {options.map((o) => (
-        <button key={o.value} role="tab" aria-selected={o.value === value} className="segmented-item" onClick={() => onChange(o.value)}>
+        <button key={o.value} type="button" aria-pressed={o.value === value} className="segmented-item" onClick={() => onChange(o.value)}>
           {o.value === value && <motion.span layoutId={`seg-${id}`} className="segmented-pill" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
           <span className="segmented-label">{o.label}</span>
         </button>

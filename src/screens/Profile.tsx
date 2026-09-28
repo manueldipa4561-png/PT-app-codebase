@@ -9,6 +9,7 @@ interface InstallPrompt extends Event {
   prompt(): Promise<void>;
 }
 let deferredInstall: InstallPrompt | null = null;
+const HISTORY = 5; // latest pack movements shown before "show all"
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
@@ -24,6 +25,7 @@ export function Profile() {
   const [busy, setBusy] = useState(false);
   const [rules, setRules] = useState(false);
   const [canInstall, setCanInstall] = useState(!!deferredInstall);
+  const [allHistory, setAllHistory] = useState(false);
   const coach = firstName(trainer.name);
   const client = me.client;
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
@@ -78,6 +80,7 @@ export function Profile() {
         <h2 className="section-title">{t('profile.language')}</h2>
         <Segmented<Locale>
           id="lang"
+          label={t('profile.language')}
           value={lang}
           onChange={setLang}
           options={[
@@ -125,7 +128,7 @@ export function Profile() {
           <p className="muted">{t('profile.noHistory')}</p>
         ) : (
           <div className="list">
-            {ledger.slice(0, 12).map((l) => (
+            {(allHistory ? ledger : ledger.slice(0, HISTORY)).map((l) => (
               <div key={l.id} className="item">
                 <div className="item-main">
                   <div className="item-title">{t(`ledger.${l.reason}` as Key)}</div>
@@ -138,6 +141,11 @@ export function Profile() {
               </div>
             ))}
           </div>
+        )}
+        {!allHistory && ledger.length > HISTORY && (
+          <Button variant="ghost" onClick={() => setAllHistory(true)} style={{ marginTop: 8 }}>
+            {t('common.showAll', { n: ledger.length })}
+          </Button>
         )}
       </section>
 

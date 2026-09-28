@@ -100,13 +100,27 @@ function compile(gl: WebGLRenderingContext): WebGLProgram | null {
   };
   const vs = shader(gl.VERTEX_SHADER, VERT);
   const fs = shader(gl.FRAGMENT_SHADER, FRAG);
-  const program = gl.createProgram();
-  if (!vs || !fs || !program) return null;
-  gl.attachShader(program, vs);
-  gl.attachShader(program, fs);
-  gl.linkProgram(program);
-  return gl.getProgramParameter(program, gl.LINK_STATUS) ? program : null;
+  const program = vs && fs ? gl.createProgram() : null;
+  if (program && vs && fs) {
+    gl.attachShader(program, vs);
+    gl.attachShader(program, fs);
+    gl.linkProgram(program);
+  }
+  // A linked program keeps working without its shaders: free them now, on every path.
+  for (const s of [vs, fs]) {
+    if (!s) continue;
+    if (program) gl.detachShader(program, s);
+    gl.deleteShader(s);
+  }
+  if (program && gl.getProgramParameter(program, gl.LINK_STATUS)) return program;
+  if (program) gl.deleteProgram(program);
+  return null;
 }
+
+// Browsers cap live WebGL contexts (iOS Safari especially) and drop the oldest past the cap.
+// A canvas that really unmounts gives its context back; StrictMode's instant remount of the
+// same canvas cancels the release and keeps using it.
+const pendingRelease = new WeakMap<HTMLCanvasElement, number>();
 
 export function HeroGL(props: HeroGLProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -119,6 +133,7 @@ export function HeroGL(props: HeroGLProps) {
   useEffect(() => {
     const el = canvas.current;
     if (!el || !props.src) return;
+    window.clearTimeout(pendingRelease.get(el));
     const gl = el.getContext('webgl', { antialias: false, alpha: false, premultipliedAlpha: false, powerPreference: 'low-power' });
     const program = gl && compile(gl);
     if (!gl || !program) {
@@ -248,13 +263,13 @@ export function HeroGL(props: HeroGLProps) {
       gl.deleteTexture(texture);
       gl.deleteBuffer(buffer);
       gl.deleteProgram(program);
-      // No loseContext(): under React StrictMode the same canvas mounts twice and must stay usable.
+      pendingRelease.set(el, window.setTimeout(() => gl.getExtension('WEBGL_lose_context')?.loseContext(), 0));
       redraw.current = () => {};
     };
   }, [props.src]);
 
   // Recolor instantly even when the loop is paused (reduced motion, offscreen).
-  useEffect(() => redraw.current(), [props.brand, props.accent, props.base, props.mode, props.strength]);
+  useEffect(() => redraw.current(), [props.brand, props.accent, props.base, props.mode, props.strength, props.grain, props.fade]);
 
   if (!props.src) return <div className={`hero-fallback ${props.className ?? ''}`} aria-hidden />;
   if (failed) return <img className={`hero-img ${props.className ?? ''}`} src={props.src} alt={props.alt} />;

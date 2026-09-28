@@ -4,6 +4,7 @@ import { Gift } from '@phosphor-icons/react';
 import { AppError, REFERRAL_CODE, isEmail } from '../domain.ts';
 import { errorText, useI18n } from '../i18n.ts';
 import { Button, Field, Mark, useApp } from '../ui.tsx';
+import { BrandCover } from './Home.tsx';
 
 const REF_KEY = 'pt-ref';
 const readRef = () => {
@@ -16,7 +17,7 @@ const readRef = () => {
 
 /** Sign in with a 6-digit email code (not a magic link: an iPhone home-screen app has its own storage). */
 export function Join({ referralCode }: { referralCode?: string }) {
-  const { api, trainer, me, refresh } = useApp();
+  const { api, trainer, me, refresh, dark } = useApp();
   const { t } = useI18n();
   const [step, setStep] = useState<'email' | 'code' | 'profile'>(me.userId ? 'profile' : 'email');
   const [email, setEmail] = useState('');
@@ -78,7 +79,11 @@ export function Join({ referralCode }: { referralCode?: string }) {
   };
 
   return (
-    <div className="pad" style={{ paddingTop: 'calc(40px + env(safe-area-inset-top))' }}>
+    <>
+    <div className="join-cover">
+      <BrandCover trainer={trainer} dark={dark} />
+    </div>
+    <div className="pad join-body">
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 260, damping: 26 }}>
         <Mark trainer={trainer} size={56} />
         <h1 className="display" style={{ margin: '20px 0 8px', fontSize: 44 }}>
@@ -159,5 +164,6 @@ export function Join({ referralCode }: { referralCode?: string }) {
         )}
       </form>
     </div>
+    </>
   );
 }
