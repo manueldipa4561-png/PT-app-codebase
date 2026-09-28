@@ -53,6 +53,7 @@ Demo mode turns off as soon as `VITE_SUPABASE_URL` is set. To run locally agains
 | `npm run typecheck` | TypeScript check only |
 | `npm test` | The business rules, plus the shared scenarios against the demo backend |
 | `npm run test:sql` | The same scenarios against the real migration, in PGlite (Postgres in WASM, no Docker) |
+| `npm run test:api` | The production data source (`src/supabase.ts`, through supabase-js) against a local stand-in for Supabase's Auth and Data API running the real migration: the scenarios plus every Api method |
 
 ## Project map
 
@@ -105,7 +106,7 @@ Everything in the code is ready: the only thing left is the Supabase project and
    - `VITE_APP_BASE_DOMAIN` and `APP_BASE_DOMAIN` (optional): the domain whose subdomains are trainer slugs, for example `app.example.it`
 
    The secret / service_role key never goes into Netlify, the repo or the frontend.
-8. **Deploy.** Push to the main branch, or start a deploy in Netlify. `VITE_` variables are baked in at build time: after changing one, deploy again. With these variables set the demo turns off: the site serves real trainers only.
+8. **Deploy.** Push to the main branch, or start a deploy in Netlify. `VITE_` variables are baked in at build time: after changing one, deploy again. With these variables set the demo turns off: the site serves real trainers only. To keep the sales demo online, create a second Netlify site from the same repo with **no** environment variables.
 9. **First trainer and smoke test.** Add a trainer (next section). To try it before any real domain, put your Netlify address in the JSON (`"domain": "<your-site>.netlify.app"`) and run it. Then, on a phone: open the site, sign in with a real email (the code must arrive, not in spam), join, and book. Open `/admin` signed in with the trainer's email: you see the trainer admin. Mark a pack paid and watch the client's balance change.
 
 From now on, database changes go out before the frontend. See [docs/RUNBOOK.md](docs/RUNBOOK.md), "Deploy order".
@@ -149,7 +150,7 @@ $json$::jsonb);
 
 **2. Fill it in.** Replace every `<<placeholder>>` (the statement refuses to run while one is left) and adjust to the trainer's real week:
 - `slug`: lowercase letters, digits and hyphens. It is their subdomain. `ownerEmail`: the email the trainer will sign in with.
-- `logo` and `cover`: an uploaded logo stays in the browser and is left out, and the cover is a demo photo. Upload the trainer's own files to a public Supabase Storage bucket (for example `brand`) and use those `https://` URLs.
+- `logo` and `cover`: an uploaded logo stays in the browser and is left out, and the cover is a demo photo. Upload the trainer's own files in Supabase > Storage > **brand** (the migration creates this public bucket), click a file, "Get URL", and use those `https://` URLs. Product photos (`imageUrl`) go there too.
 - `sessionTypes`: `credits` is what one booking costs (0 = free), `capacity` above 1 makes it a small group. Keep names free of health data: "Personal 1:1" yes, "Post-injury rehab" no.
 - `availability`: one entry per weekly window, in the trainer's local time. `weekday` is ISO: **1 = Monday**, 7 = Sunday. `sessionType` (optional) keeps a window for one session type only, such as a group class.
 - `products` (pro and store plans): each "Buy" opens a Stripe Payment Link the trainer creates in their own Stripe account. Use `[]` for none.

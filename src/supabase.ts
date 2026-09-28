@@ -193,8 +193,8 @@ const toSlot = (r: Row): Slot => ({
 
 /**
  * The one error mapper. A SQL `raise exception 'NO_CREDITS'` arrives as the message and becomes
- * that AppError; auth limits, bad codes and network failures get their codes; anything else is
- * rethrown with the operation name, never swallowed.
+ * that AppError; refused privileges, auth limits, bad codes and network failures get their codes;
+ * anything else is rethrown with the operation name, never swallowed.
  */
 function toAppError(op: string, e: unknown): Error {
   if (e instanceof AppError) return e;
@@ -203,6 +203,9 @@ function toAppError(op: string, e: unknown): Error {
   const code = get('code');
   const known = ERROR_CODES.find((c) => c === message);
   if (known) return new AppError(known);
+  // Postgres insufficient_privilege, via PostgREST: a function closed to the signed-out role, or a
+  // row level security check (not the owner). The demo calls both NOT_ALLOWED.
+  if (code === '42501') return new AppError('NOT_ALLOWED', message);
   if (get('status') === 429 || code === 'over_email_send_rate_limit' || code === 'over_request_rate_limit') return new AppError('RATE_LIMITED');
   if (code === 'otp_expired' || /expired or is invalid/i.test(message)) return new AppError('INVALID_CODE');
   // fetch rejects with a TypeError; postgrest-js reports it as "TypeError: ...", auth-js as status 0
@@ -259,6 +262,19 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     if (error) throw toAppError(op, error);
     return data.session ? clientOf(op, trainerId, data.session.user.id) : null;
   }
+  /**
+   * Signs this device out. auth-js drops the local session even when the server cannot be told
+   * (offline) and only then reports the error: that is still a sign-out. It failed only if a
+   * session is still here.
+   */
+  async function signOutHere(op: string) {
+    try {
+      await run(op, sb.auth.signOut({ scope: 'local' }));
+    } catch (e) {
+      const { data, error } = await sb.auth.getSession();
+      if (data.session || error) throw e;
+    }
+  }
 
   return {
     mode: 'live',
@@ -290,7 +306,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       await run('verifyCode', sb.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: 'email' }));
     },
     async signOut() {
-      await run('signOut', sb.auth.signOut({ scope: 'local' }));
+      await signOutHere('signOut');
     },
     async me(trainerId) {
       const { data, error } = await sb.auth.getUser();
@@ -353,7 +369,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     },
     async deleteAccount(trainerId) {
       await run('deleteAccount', sb.rpc('delete_my_account', { p_trainer: trainerId }));
-      await run('deleteAccount', sb.auth.signOut({ scope: 'local' }));
+      await signOutHere('deleteAccount');
     },
 
     async trainerData(trainerId) {
