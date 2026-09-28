@@ -21,16 +21,18 @@ self.addEventListener('fetch', (event) => {
 
   if (req.mode === 'navigate') {
     // Network first: bookings and credits must be fresh. Offline, serve the last page that loaded.
+    // One shell per origin; the query is kept because the shared demo origin picks the trainer with ?t=.
+    const key = `/${url.search}`;
     event.respondWith(
       fetch(req)
         .then((res) => {
           if (res.ok) {
             const copy = res.clone();
-            event.waitUntil(caches.open(CACHE).then((c) => c.put('/', copy)));
+            event.waitUntil(caches.open(CACHE).then((c) => c.put(key, copy)));
           }
           return res;
         })
-        .catch(() => caches.match('/').then((hit) => hit || Response.error())),
+        .catch(() => caches.match(key).then((hit) => hit || Response.error())),
     );
     return;
   }

@@ -37,9 +37,12 @@ async function findTrainer(key: string): Promise<Trainer> {
     return demo;
   }
   const anon = Netlify.env.get('SUPABASE_ANON_KEY') ?? '';
+  // Legacy anon keys are JWTs and also go in Authorization; new sb_publishable_ keys never do
+  // (same rule as supabase-js), the apikey header alone gives the anon role.
+  const bearer = anon.startsWith('sb_publishable_') ? {} : { authorization: `Bearer ${anon}` };
   const res = await fetch(`${supabase.replace(/\/+$/, '')}/rest/v1/rpc/trainer_public`, {
     method: 'POST',
-    headers: { apikey: anon, authorization: `Bearer ${anon}`, 'content-type': 'application/json' },
+    headers: { apikey: anon, ...bearer, 'content-type': 'application/json' },
     body: JSON.stringify({ p_key: key }),
     signal: AbortSignal.timeout(1500), // a slow database must not hold the page
   });
