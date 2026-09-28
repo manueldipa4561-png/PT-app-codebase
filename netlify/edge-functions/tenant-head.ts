@@ -19,10 +19,13 @@ const INVITE = 'Hai ricevuto un invito. Entra e prenota la tua prima sessione.';
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const https = (u: string | undefined) => (u && isHttpsUrl(u) ? u : null);
+// Our names first, then the ones Netlify's Supabase extension and Supabase's dashboard use (as in src/api.ts).
+const env = (...names: string[]) => names.map((n) => Netlify.env.get(n)).find(Boolean);
+const supabaseUrl = () => env('SUPABASE_URL', 'SUPABASE_DATABASE_URL');
 
 function trainerKey(url: URL): string {
   // ?t= only in the demo (no Supabase): a live trainer domain never previews another trainer.
-  const fromQuery = Netlify.env.get('SUPABASE_URL') ? null : url.searchParams.get('t');
+  const fromQuery = supabaseUrl() ? null : url.searchParams.get('t');
   if (fromQuery) return fromQuery;
   const host = url.hostname.toLowerCase();
   const base = Netlify.env.get('APP_BASE_DOMAIN')?.toLowerCase();
@@ -33,7 +36,7 @@ function trainerKey(url: URL): string {
 
 async function findTrainer(url: URL): Promise<Trainer> {
   const key = trainerKey(url);
-  const supabase = Netlify.env.get('SUPABASE_URL');
+  const supabase = supabaseUrl();
   if (!supabase) {
     // The demo's own brand exists only in its link (?brand=, see src/demoBrand.ts).
     const custom = key === CUSTOM_SLUG ? brandFromParam(url.searchParams.get('brand')) : null;
@@ -44,7 +47,7 @@ async function findTrainer(url: URL): Promise<Trainer> {
     if (!demo) throw new Error(`no demo trainer "${key}"`);
     return demo;
   }
-  const anon = Netlify.env.get('SUPABASE_ANON_KEY') ?? '';
+  const anon = env('SUPABASE_ANON_KEY', 'SUPABASE_PUBLISHABLE_KEY') ?? '';
   // Legacy anon keys are JWTs and also go in Authorization; new sb_publishable_ keys never do
   // (same rule as supabase-js), the apikey header alone gives the anon role.
   const bearer: Record<string, string> = anon.startsWith('sb_publishable_') ? {} : { authorization: `Bearer ${anon}` };
@@ -62,7 +65,7 @@ async function findTrainer(url: URL): Promise<Trainer> {
 }
 
 /** What the app's own links carry: nothing on a live trainer's domain, the trainer (and brand) in the demo. */
-const linkQuery = (url: URL, t: Trainer) => (Netlify.env.get('SUPABASE_URL') ? '' : demoQuery(t.slug, url.searchParams.get('brand')));
+const linkQuery = (url: URL, t: Trainer) => (supabaseUrl() ? '' : demoQuery(t.slug, url.searchParams.get('brand')));
 
 function manifest(t: Trainer, query: string): Response {
   const start = `/${query}`;

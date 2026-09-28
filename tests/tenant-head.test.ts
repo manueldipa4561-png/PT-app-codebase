@@ -4,7 +4,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { brandParam } from '../src/demoBrand.ts';
 
-(globalThis as { Netlify?: unknown }).Netlify = { env: { get: () => undefined } };
+const netlifyEnv = { get: (_name: string): string | undefined => undefined };
+(globalThis as { Netlify?: unknown }).Netlify = { env: netlifyEnv };
 const { default: tenantHead } = await import('../netlify/edge-functions/tenant-head.ts');
 
 const origin = 'https://demo.netlify.app';
@@ -26,6 +27,22 @@ test('without a logo the icon is the initials on the brand color', async () => {
   const svg = await res.text();
   assert.match(svg, /<rect [^>]*fill="#0F4C4A"/);
   assert.match(svg, />GF<\/text>/);
+});
+
+test('the names set by Netlify’s Supabase extension switch the app to live', async (t) => {
+  t.mock.method(console, 'error', () => {});
+  const vars: Record<string, string> = { SUPABASE_DATABASE_URL: 'https://ref.supabase.co', SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_x' };
+  t.mock.method(netlifyEnv, 'get', (name: string) => vars[name]);
+  const calls: { url: string; init?: RequestInit }[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ url: String(url), init });
+    return new Response('[]'); // no trainer with this name yet
+  });
+
+  assert.equal(await (await get('/manifest.webmanifest?t=giulia-ferri')).text(), 'generic');
+  assert.equal(calls[0].url, 'https://ref.supabase.co/rest/v1/rpc/trainer_public');
+  assert.equal(JSON.parse(String(calls[0].init?.body)).p_key, 'marco-bellini'); // ?t= is ignored on a live site
+  assert.deepEqual(calls[0].init?.headers, { apikey: 'sb_publishable_x', 'content-type': 'application/json' });
 });
 
 test('an unknown trainer gets the generic manifest and icon', async (t) => {
