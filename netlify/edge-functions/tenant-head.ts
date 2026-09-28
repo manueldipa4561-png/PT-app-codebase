@@ -30,7 +30,9 @@ function trainerKey(url: URL): string {
   const host = url.hostname.toLowerCase();
   const base = Netlify.env.get('APP_BASE_DOMAIN')?.toLowerCase();
   if (base && host.endsWith(`.${base}`)) return host.slice(0, -(base.length + 1));
-  if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.netlify.app')) return DEFAULT_TRAINER;
+  // The demo shows its default trainer there; a live site looks its host up like any trainer domain
+  // (a test trainer can use the netlify.app address, as src/App.tsx does with location.hostname).
+  if (!supabaseUrl() && (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.netlify.app'))) return DEFAULT_TRAINER;
   return host;
 }
 
