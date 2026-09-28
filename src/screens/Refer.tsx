@@ -13,7 +13,8 @@ export function Refer() {
   const [rules, setRules] = useState(false);
   const card = useRef<HTMLDivElement>(null);
   const code = me.client?.referralCode ?? '';
-  const link = `${location.origin}/r/${code}${api.mode === 'demo' ? `?t=${trainer.slug}` : ''}`;
+  // in the demo the invite keeps ?t= and ?brand=, so it opens this same brand on the friend's phone
+  const link = `${location.origin}/r/${code}${api.mode === 'demo' ? location.search || `?t=${trainer.slug}` : ''}`;
   const message = t('refer.shareMsg', { trainer: trainer.name, link });
 
   useEffect(() => {

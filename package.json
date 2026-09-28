@@ -7,7 +7,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/domain.test.ts tests/demo.test.ts",
+    "test": "node --test tests/domain.test.ts tests/demo.test.ts tests/demo-brand.test.ts",
     "test:sql": "node --test tests/sql.test.ts",
     "test:api": "node --test tests/supabase-api.test.ts"
   },
