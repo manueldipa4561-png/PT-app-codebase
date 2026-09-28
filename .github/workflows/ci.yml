@@ -15,4 +15,5 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run test:sql
+      - run: npm run test:api
       - run: npm run build
