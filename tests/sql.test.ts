@@ -16,7 +16,7 @@ const SUPABASE_STUB = `
   create role anon nologin;
   create role authenticated nologin;
   create schema auth;
-  create table auth.users (id uuid primary key default gen_random_uuid(), email text);
+  create table auth.users (id uuid primary key default gen_random_uuid(), email text, email_confirmed_at timestamptz default now());
   create function auth.uid() returns uuid language sql stable as $$
     select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
   $$;
@@ -208,6 +208,134 @@ test('sql: public wrappers never let a caller choose "now"', async () => {
     has_function_privilege('anon', 'public.book_session(uuid, timestamptz)', 'execute') as anon_book,
     has_function_privilege('authenticated', 'public.book_session(uuid, timestamptz)', 'execute') as client_book,
     has_function_privilege('authenticated', 'app_private.book(uuid, timestamptz, timestamptz)', 'execute') as client_private,
-    has_function_privilege('anon', 'public.trainer_public(text)', 'execute') as anon_public`);
-  assert.deepEqual(can.rows[0], { anon_book: false, client_book: true, client_private: false, anon_public: true });
+    has_function_privilege('anon', 'public.trainer_public(text)', 'execute') as anon_public,
+    has_function_privilege('authenticated', 'app_private.onboard_trainer(jsonb)', 'execute') as client_onboard,
+    has_table_privilege('authenticated', 'public.session_types', 'delete') as client_delete_type`);
+  assert.deepEqual(can.rows[0], {
+    anon_book: false,
+    client_book: true,
+    client_private: false,
+    anon_public: true,
+    client_onboard: false,
+    client_delete_type: false,
+  });
+});
+
+const ONBOARD = {
+  slug: 'mario-rossi',
+  name: 'Mario Rossi PT',
+  tagline: 'Personal training a Bologna.',
+  template: 'energy',
+  plan: 'pro',
+  theme: { brand: '#CBF24A', accent: '#FF6A2B', mode: 'dark' },
+  whatsapp: '+39 333 123 4567',
+  ownerEmail: 'Mario@Example.com',
+  sessionTypes: [
+    { name: 'Personal 1:1', description: 'Programma su misura.', minutes: 60, credits: 1 },
+    { name: 'Small group', minutes: 60, capacity: 4, credits: 1 },
+  ],
+  availability: [
+    { weekday: 1, start: '07:00', end: '10:00', location: 'Palestra Centro' },
+    { weekday: 3, start: '19:00', end: '20:00', location: 'Palestra Centro', sessionType: 'Small group' },
+  ],
+  products: [{ name: 'Kit elastici', priceCents: 2490, paymentUrl: 'https://buy.stripe.com/test' }],
+};
+
+test('sql: onboard_trainer sets up a trainer in one call and links the owner on first sign-in', async () => {
+  const db = await shared;
+  const onboard = async (p: unknown) =>
+    (await db.query<{ r: Record<string, unknown> }>(`select app_private.onboard_trainer($1::jsonb) as r`, [JSON.stringify(p)])).rows[0].r;
+
+  const first = await onboard(ONBOARD);
+  assert.deepEqual(
+    { owner: first.owner, types: first.session_types, windows: first.availability_windows, products: first.products },
+    { owner: "links at the trainer's first sign-in", types: 2, windows: 2, products: 1 },
+  );
+  const { rows: [t] } = await db.query<{ id: string; whatsapp: string; owner_email: string }>(
+    `select id, whatsapp, owner_email from public.trainers where slug = 'mario-rossi'`,
+  );
+  assert.equal(t.whatsapp, '+393331234567');
+  assert.equal(t.owner_email, 'mario@example.com');
+  const { rows: [group] } = await db.query<{ n: number }>(
+    `select count(*)::int as n from public.availability a join public.session_types s on s.id = a.session_type_id
+     where a.trainer_id = $1 and s.name = 'Small group'`,
+    [t.id],
+  );
+  assert.equal(group.n, 1);
+
+  // an unconfirmed sign-up with the owner's email is not the owner; confirming the email is
+  const { rows: [u] } = await db.query<{ id: string }>(`insert into auth.users (email, email_confirmed_at) values ('mario@example.com', null) returning id`);
+  const ownerOf = async () => (await db.query<{ o: string | null }>(`select owner_user_id as o from public.trainers where id = $1`, [t.id])).rows[0].o;
+  assert.equal(await ownerOf(), null);
+  await db.query(`update auth.users set email_confirmed_at = now() where id = $1`, [u.id]);
+  assert.equal(await ownerOf(), u.id);
+  const pub = await db.query(`select 1 from public.trainer_public('mario-rossi')`);
+  assert.equal(pub.rows.length, 1);
+
+  // re-running with less retires what is missing (bookings may point at it) and keeps the owner
+  const again = await onboard({ ...ONBOARD, sessionTypes: ONBOARD.sessionTypes.slice(0, 1), availability: ONBOARD.availability.slice(0, 1), products: [] });
+  assert.deepEqual({ owner: again.owner, types: again.session_types, windows: again.availability_windows, products: again.products }, {
+    owner: 'linked',
+    types: 1,
+    windows: 1,
+    products: 0,
+  });
+  const { rows: [kept] } = await db.query<{ n: number }>(`select count(*)::int as n from public.session_types where trainer_id = $1`, [t.id]);
+  assert.equal(kept.n, 2);
+
+  await assert.rejects(onboard({ ...ONBOARD, availability: [{ weekday: 2, start: '08:00', end: '09:00', sessionType: 'Yoga' }] }), /session type/);
+  await assert.rejects(onboard({ name: 'No slug' }), /slug/);
+  await assert.rejects(onboard({ ...ONBOARD, ownerEmail: '<<email con cui il trainer accede>>' }), /placeholder/);
+});
+
+test('sql: onboard_trainer links a login that already exists', async () => {
+  const db = await shared;
+  const { rows: [u] } = await db.query<{ id: string }>(`insert into auth.users (email) values ('giulia.coach@example.com') returning id`);
+  const { rows: [r] } = await db.query<{ r: { owner: string } }>(`select app_private.onboard_trainer($1::jsonb) as r`, [
+    JSON.stringify({ slug: 'giulia-coach', name: 'Giulia Coach', ownerEmail: 'giulia.coach@example.com' }),
+  ]);
+  assert.equal(r.r.owner, 'linked');
+  const { rows: [t] } = await db.query<{ o: string }>(`select owner_user_id as o from public.trainers where slug = 'giulia-coach'`);
+  assert.equal(t.o, u.id);
+});
+
+test('sql: trainer settings are checked when they are saved', async () => {
+  const db = await shared;
+  await assert.rejects(db.query(`insert into public.trainers (slug, name, timezone) values ('bad-zone', 'X', 'Europe/Nowhere')`));
+  // a domain needs a dot, so it can never equal another trainer's slug
+  await assert.rejects(db.query(`insert into public.trainers (slug, name, domain) values ('no-dot', 'X', 'mario-rossi')`));
+  await db.query(`insert into public.trainers (slug, name, domain, timezone) values ('with-dot', 'X', 'app.example.it', 'America/New_York')`);
+});
+
+test('sql: packs and the ledger survive a trainer delete until they are removed on purpose', async () => {
+  const db = await shared;
+  const h = sqlHarness(db);
+  const t = await h.trainer();
+  const c = await h.join(await h.user('keep-ledger@example.com'), t);
+  assert.ok(c.ok);
+  assert.ok((await h.packPaid(h.ownerOf(t), c.value.id, 10, 'keep-ledger')).ok);
+  await assert.rejects(db.query(`delete from public.trainers where id = $1`, [t]));
+  await db.query(`delete from public.credit_ledger where trainer_id = $1`, [t]);
+  await db.query(`delete from public.pack_purchases where trainer_id = $1`, [t]);
+  await db.query(`delete from public.trainers where id = $1`, [t]);
+});
+
+test("sql: deleting a client account never deletes a trainer's own login", async () => {
+  const db = await shared;
+  const h = sqlHarness(db);
+  const mine = await h.trainer();
+  const owner = h.ownerOf(mine);
+  const other = await h.trainer();
+  const joined = await h.join(owner, other); // the trainer is also a client of another trainer
+  assert.ok(joined.ok);
+  await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [owner]);
+  try {
+    await db.query(`select public.delete_my_account($1)`, [other]);
+  } finally {
+    await db.query(`select set_config('request.jwt.claim.sub', '', false)`);
+  }
+  const { rows } = await db.query(`select 1 from auth.users where id = $1`, [owner]);
+  assert.equal(rows.length, 1);
+  const { rows: [t] } = await db.query<{ o: string }>(`select owner_user_id as o from public.trainers where id = $1`, [mine]);
+  assert.equal(t.o, owner);
 });
