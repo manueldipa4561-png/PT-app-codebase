@@ -1,7 +1,7 @@
 import { ShoppingBag, Storefront } from '@phosphor-icons/react';
 import { motion } from 'motion/react';
-import { firstName, type Product } from '../domain.ts';
-import { fmtMoney, useI18n } from '../i18n.ts';
+import { firstName, isHttpsUrl, type Product } from '../domain.ts';
+import { errorText, fmtMoney, useI18n } from '../i18n.ts';
 import { Button, Empty, useApp } from '../ui.tsx';
 
 export function Shop() {
@@ -11,7 +11,8 @@ export function Shop() {
   function buy(p: Product) {
     // Stripe Payment Link in the trainer's own Stripe account: money never passes through us.
     if (api.mode === 'demo') toast(t('shop.demo'));
-    else window.open(p.paymentUrl, '_blank', 'noopener,noreferrer');
+    else if (isHttpsUrl(p.paymentUrl)) window.open(p.paymentUrl, '_blank', 'noopener,noreferrer');
+    else toast(errorText(t, 'generic'), 'error'); // the database only accepts https, so this is defense in depth
   }
 
   return (
@@ -28,14 +29,15 @@ export function Shop() {
             {products.map((p) => (
               <motion.div key={p.id} className="product" variants={{ hidden: { opacity: 0, y: 14 }, show: { opacity: 1, y: 0 } }}>
                 <span className="product-art" aria-hidden>
-                  {p.imageUrl ? <img src={p.imageUrl} alt="" /> : <ShoppingBag size={40} weight="duotone" />}
+                  {p.imageUrl ? <img src={p.imageUrl} alt="" loading="lazy" /> : <ShoppingBag size={40} weight="duotone" />}
                 </span>
                 <span className="product-name">{p.name}</span>
-                {p.description && <span className="muted" style={{ fontSize: 13, lineHeight: 1.35 }}>{p.description}</span>}
-                <span className="row">
+                {p.description && <span className="product-desc">{p.description}</span>}
+                <span className="product-foot">
                   <span className="product-price">{fmtMoney(p.priceCents, trainer.currency, lang)}</span>
-                  <span className="spacer" />
-                  <Button onClick={() => buy(p)}>{t('shop.buy')}</Button>
+                  <Button block onClick={() => buy(p)}>
+                    {t('shop.buy')}
+                  </Button>
                 </span>
               </motion.div>
             ))}

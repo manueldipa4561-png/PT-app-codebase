@@ -46,6 +46,7 @@ export function Agenda() {
       <div className="pad section" style={{ marginTop: 16 }}>
         <Segmented<'up' | 'past'>
           id="agenda"
+          label={t('agenda.title')}
           value={tab}
           onChange={setTab}
           options={[
@@ -75,7 +76,7 @@ export function Agenda() {
                     </div>
                   </div>
                   {isUpcoming(b) ? (
-                    <Button variant="ghost" onClick={() => setTarget(b)}>
+                    <Button variant="ghost" className="btn-quiet" onClick={() => setTarget(b)}>
                       {t('agenda.cancel')}
                     </Button>
                   ) : (

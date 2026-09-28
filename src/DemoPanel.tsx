@@ -1,9 +1,9 @@
 // The sales demo around the phone: switch trainer, switch client / trainer view, and build a
 // trainer's brand live while they watch ("the list to choose from"). Demo mode only.
 import { useEffect, useState, type ChangeEvent } from 'react';
-import { ArrowCounterClockwise, Copy, Eye, Palette, UploadSimple, X } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, Check, Copy, Palette, SlidersHorizontal, UploadSimple, X } from '@phosphor-icons/react';
 import type { DemoApi } from './demo.ts';
-import { COVER_CHOICES, DEMO_USER, PHOTOS, type DemoTrainer } from './seed.ts';
+import { COVER_CHOICES, DEMO_USER, PHOTOS, type DemoDB, type DemoTrainer } from './seed.ts';
 import { TEMPLATE_LIST } from './theme.ts';
 import type { Plan, Theme } from './domain.ts';
 import { translator, type Key } from './i18n.ts';
@@ -11,6 +11,46 @@ import { translator, type Key } from './i18n.ts';
 const CUSTOM_ID = 'tr-custom';
 const DATA_FROM = 'tr-marco'; // the preview reuses a full calendar, clients and shop
 const t = translator('it');
+
+/**
+ * The trainer as one app_private.onboard_trainer() call, ready for the Supabase SQL editor.
+ * onboard_trainer refuses to run while any <<placeholder>> is left.
+ */
+function goLiveSql(db: DemoDB, src: DemoTrainer): string {
+  const types = db.sessionTypes.filter((s) => s.trainerId === src.id && s.active).sort((a, b) => a.sort - b.sort);
+  const typeName = new Map(types.map((s) => [s.id, s.name]));
+  const trainer = {
+    slug: src.id === CUSTOM_ID ? '<<slug, per esempio mario-rossi>>' : src.slug,
+    name: src.name,
+    tagline: src.tagline,
+    template: src.template,
+    plan: src.plan,
+    theme: { ...src.theme, logo: src.theme.logo?.startsWith('https://') ? src.theme.logo : undefined },
+    ownerEmail: '<<email con cui il trainer accede>>',
+    whatsapp: src.whatsapp ?? '<<numero WhatsApp con prefisso, oppure togli questa riga>>',
+    timezone: src.timezone,
+    cancelWindowHours: src.cancelWindowHours,
+    sessionTypes: types.map((s) => ({ name: s.name, description: s.description ?? undefined, minutes: s.minutes, capacity: s.capacity, credits: s.credits })),
+    availability: db.availability
+      .filter((a) => a.trainerId === src.id)
+      .map((a) => ({ weekday: a.weekday, start: a.start, end: a.end, location: a.location ?? undefined, sessionType: a.sessionTypeId ? typeName.get(a.sessionTypeId) : undefined })),
+    products:
+      src.plan === 'web'
+        ? []
+        : db.products
+            .filter((p) => p.trainerId === src.id && p.active)
+            .sort((a, b) => a.sort - b.sort)
+            .map((p) => ({ name: p.name, description: p.description ?? undefined, priceCents: p.priceCents, imageUrl: p.imageUrl ?? undefined, paymentUrl: '<<Stripe Payment Link del trainer>>' })),
+  };
+  return [
+    '-- Go live for one trainer: paste into the Supabase SQL editor, replace every <<placeholder>>, run.',
+    '-- Re-run the whole call to change anything later (see README, "Add a trainer").',
+    'select app_private.onboard_trainer($json$',
+    JSON.stringify(trainer, null, 2),
+    '$json$::jsonb);',
+    '',
+  ].join('\n');
+}
 
 function go(path: string) {
   const url = new URL(location.href);
@@ -32,6 +72,13 @@ export function DemoPanel({ api, current, onPick, onChange }: { api: DemoApi; cu
     return () => m.removeEventListener('change', on);
   }, []);
 
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setOpen(false);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open]);
+
   const db = api.db();
   const cur = db.trainers.find((x) => x.slug === current) ?? db.trainers[0];
   const custom = db.trainers.find((x) => x.id === CUSTOM_ID);
@@ -47,6 +94,7 @@ export function DemoPanel({ api, current, onPick, onChange }: { api: DemoApi; cu
     onPick(slug);
     go('/');
     changed();
+    setOpen(false); // on a phone, show the result right away
   }
 
   function setView(v: 'client' | 'trainer' | 'invite') {
@@ -62,6 +110,7 @@ export function DemoPanel({ api, current, onPick, onChange }: { api: DemoApi; cu
       go(`/r/${code}`);
     }
     changed();
+    setOpen(false);
   }
 
   function edit(patch: Partial<Omit<DemoTrainer, 'theme'>> & { theme?: Partial<Theme> }) {
@@ -94,15 +143,9 @@ export function DemoPanel({ api, current, onPick, onChange }: { api: DemoApi; cu
     reader.readAsDataURL(file);
   }
 
-  async function copyTheme() {
-    const src = custom ?? cur;
-    const json = JSON.stringify(
-      { slug: src.slug, name: src.name, tagline: src.tagline, template: src.template, plan: src.plan, theme: { ...src.theme, logo: src.theme.logo?.startsWith('https://') ? src.theme.logo : undefined } },
-      null,
-      2,
-    );
+  async function copyGoLive() {
     try {
-      await navigator.clipboard.writeText(json);
+      await navigator.clipboard.writeText(goLiveSql(db, custom ?? cur));
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch (err) {
@@ -134,7 +177,7 @@ export function DemoPanel({ api, current, onPick, onChange }: { api: DemoApi; cu
               {TEMPLATE_LIST.find((s) => s.id === x.template)?.label}, {t(`plan.${x.plan}` as Key)}
             </small>
           </span>
-          <Eye size={18} aria-hidden />
+          {x.id === cur.id && <Check size={18} weight="bold" aria-hidden />}
         </button>
       ))}
 
@@ -147,7 +190,7 @@ export function DemoPanel({ api, current, onPick, onChange }: { api: DemoApi; cu
         ))}
       </div>
 
-      <h2>{t('demo.create')}</h2>
+      <h2>{t('demo.brandTitle')}</h2>
       {!editing ? (
         <button className="panel-btn" onClick={() => edit({})}>
           <Palette size={16} aria-hidden /> {t('demo.create')}
@@ -237,9 +280,8 @@ export function DemoPanel({ api, current, onPick, onChange }: { api: DemoApi; cu
         </div>
       )}
 
-      <h2>&nbsp;</h2>
-      <div className="panel-row">
-        <button className="panel-btn" onClick={copyTheme}>
+      <div className="panel-row panel-foot">
+        <button className="panel-btn" onClick={copyGoLive}>
           <Copy size={16} aria-hidden /> {copied ? t('demo.copied') : t('demo.copyJson')}
         </button>
         <button
@@ -258,11 +300,12 @@ export function DemoPanel({ api, current, onPick, onChange }: { api: DemoApi; cu
   if (!narrow) return panel;
   return (
     <>
-      <button className="demo-fab" onClick={() => setOpen(true)}>
+      <button className="demo-fab" onClick={() => setOpen(true)} aria-label={t('demo.openLabel')} aria-expanded={open}>
+        <SlidersHorizontal size={16} weight="bold" aria-hidden />
         {t('demo.open')}
       </button>
       {open && (
-        <div className="demo-overlay" onClick={(e) => e.target === e.currentTarget && setOpen(false)}>
+        <div className="demo-overlay" role="dialog" aria-modal="true" aria-label={t('demo.title')} onClick={(e) => e.target === e.currentTarget && setOpen(false)}>
           {panel}
         </div>
       )}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CalendarPlus, CalendarX, ChatCircleText, Check } from '@phosphor-icons/react';
 import { AppError, addDays, firstName, localParts, whatsappLink, type Booking, type Slot } from '../domain.ts';
@@ -28,14 +28,18 @@ export function Book() {
   const type = types.find((x) => x.id === typeId);
   const noCredits = (type?.credits ?? 0) > balance;
 
+  // Switching session type quickly: only the latest request may fill the slots.
+  const request = useRef(0);
   const load = useCallback(async () => {
     if (!typeId) return;
+    const mine = ++request.current;
     setSlots(null);
     setError(null);
     try {
-      setSlots(await api.freeSlots(typeId, today, DAYS));
+      const found = await api.freeSlots(typeId, today, DAYS);
+      if (mine === request.current) setSlots(found);
     } catch (e) {
-      setError(codeOf(e));
+      if (mine === request.current) setError(codeOf(e));
     }
   }, [api, typeId, today]);
 
@@ -53,9 +57,8 @@ export function Book() {
     return m;
   }, [slots, tz]);
 
-  useEffect(() => {
-    if (slots && (!day || !byDay.has(day))) setDay(days.find((d) => byDay.has(d)) ?? days[0]);
-  }, [slots, byDay, day, days]);
+  // The picked day, or the first day with free slots once they load.
+  const activeDay = day && byDay.has(day) ? day : slots ? (days.find((d) => byDay.has(d)) ?? days[0]) : null;
 
   async function confirm() {
     if (!pick || !typeId) return;
@@ -81,7 +84,7 @@ export function Book() {
   if (done) return <Success booking={done} typeName={type?.name ?? ''} />;
 
   const weekday = (d: string) => new Intl.DateTimeFormat(lang === 'it' ? 'it-IT' : 'en-GB', { weekday: 'short', timeZone: 'UTC' }).format(new Date(`${d}T12:00:00Z`));
-  const daySlots = (day && byDay.get(day)) || [];
+  const daySlots = (activeDay && byDay.get(activeDay)) || [];
 
   return (
     <>
@@ -123,7 +126,7 @@ export function Book() {
               <button
                 key={d}
                 className="day"
-                aria-pressed={d === day}
+                aria-pressed={d === activeDay}
                 disabled={!slots || !has}
                 onClick={() => {
                   setDay(d);
@@ -132,7 +135,6 @@ export function Book() {
               >
                 <span className="day-wd">{weekday(d)}</span>
                 <span className="day-n">{Number(d.slice(8))}</span>
-                {has && <span className="day-dot" aria-hidden />}
               </button>
             );
           })}
@@ -150,7 +152,7 @@ export function Book() {
             ))}
           </div>
         ) : daySlots.length ? (
-          <motion.div key={day} className="slots" initial="hidden" animate="show" variants={{ show: { transition: { staggerChildren: 0.025 } } }}>
+          <motion.div key={activeDay} className="slots" initial="hidden" animate="show" variants={{ show: { transition: { staggerChildren: 0.025 } } }}>
             {daySlots.map((s) => (
               <motion.button
                 key={s.startsAt}
@@ -202,8 +204,8 @@ export function Book() {
                 </div>
               )}
               <div className="summary-row">
-                <span>{t('home.pack')}</span>
-                <b>{t('book.after', { left: counted(t, lang, 'left', balance - type.credits) })}</b>
+                <span>{t('book.after')}</span>
+                <b>{counted(t, lang, 'left', balance - type.credits)}</b>
               </div>
             </div>
             <p className="policy">{t('book.policy', { h: trainer.cancelWindowHours })}</p>

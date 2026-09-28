@@ -26,7 +26,8 @@ export function Trainer() {
   const [tab, setTab] = useState<Tab>('today');
   const [data, setData] = useState<TrainerData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [openClient, setOpenClient] = useState<Client | null>(null);
+  const [openClient, setOpenClient] = useState<Client | null>(null); // kept after closing, so the sheet can animate out
+  const [clientOpen, setClientOpen] = useState(false);
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState('');
   const tz = trainer.timezone;
@@ -96,9 +97,9 @@ export function Trainer() {
         <span className="spacer" />
         <Button variant="secondary" onClick={exportCsv} icon={<DownloadSimple size={18} aria-hidden />} aria-label={t('tr.export')} />
       </div>
-      <div className="tabs-scroll" role="tablist">
+      <div className="tabs-scroll" role="group" aria-label={t('tr.title')}>
         {tabs.map((x) => (
-          <button key={x.id} className="chip" role="tab" aria-pressed={tab === x.id} aria-selected={tab === x.id} onClick={() => setTab(x.id)}>
+          <button key={x.id} type="button" className="chip" aria-pressed={tab === x.id} onClick={() => setTab(x.id)}>
             {x.label}
           </button>
         ))}
@@ -137,7 +138,15 @@ export function Trainer() {
                 .map((c) => {
                   const bal = balanceOf(data.ledger, c.id);
                   return (
-                    <button key={c.id} className="item" style={{ textAlign: 'left' }} onClick={() => setOpenClient(c)}>
+                    <button
+                      key={c.id}
+                      className="item"
+                      style={{ textAlign: 'left' }}
+                      onClick={() => {
+                        setOpenClient(c);
+                        setClientOpen(true);
+                      }}
+                    >
                       <div className="item-main">
                         <div className="item-title">{c.name}</div>
                         <div className="item-sub">{c.userId ? c.email : t('tr.noLogin')}</div>
@@ -161,15 +170,13 @@ export function Trainer() {
                 .map((r) => (
                   <div key={r.id} className="item">
                     <div className="item-main">
-                      <div className="item-title">
-                        {clientsById.get(r.referredClientId)?.name}
-                      </div>
+                      <div className="item-title">{clientsById.get(r.referredClientId)?.name}</div>
                       <div className="item-sub">
-                        {clientsById.get(r.referrerClientId)?.name}, {fmtDay(r.createdAt, tz, lang)}
+                        {t('tr.invitedBy', { name: clientsById.get(r.referrerClientId)?.name ?? '', date: fmtDay(r.createdAt, tz, lang) })}
                       </div>
                     </div>
                     <span className={`badge${r.status === 'rewarded' ? ' badge-brand' : ''}`}>
-                      {t(r.status === 'rewarded' ? 'refer.rewarded' : r.status === 'reversed' ? 'refer.reversed' : 'refer.pending')}
+                      {t(r.status === 'rewarded' ? 'tr.ref.rewarded' : r.status === 'reversed' ? 'refer.reversed' : 'tr.ref.pending')}
                     </span>
                     {r.status !== 'reversed' && (
                       <Button
@@ -190,7 +197,8 @@ export function Trainer() {
         )}
       </section>
 
-      <ClientSheet client={openClient} data={data} onClose={() => setOpenClient(null)} act={act} />
+      {/* keyed by client: nothing typed for one client (price, credits, date) can carry over to the next */}
+      <ClientSheet key={openClient?.id ?? 'none'} client={openClient} open={clientOpen} data={data} onClose={() => setClientOpen(false)} act={act} />
       <AddClient open={adding} onClose={() => setAdding(false)} act={act} />
     </>
   );
@@ -209,13 +217,14 @@ function Today({ data, name, typeName, act }: { data: TrainerData; name(id: stri
   const todays = live.filter((b) => dayOf(b) === today);
   const soon = live.filter((b) => dayOf(b) !== today && Date.parse(b.startsAt) > now && Date.parse(b.startsAt) < now + 7 * 86_400_000);
 
+  const weekdayDay = new Intl.DateTimeFormat(lang === 'it' ? 'it-IT' : 'en-GB', { timeZone: tz, weekday: 'short', day: 'numeric' });
   const row = (b: Booking, withDay: boolean) => (
     <div key={b.id} className="item">
       <div className="item-date">
         <b className="tabular" style={{ fontSize: 18 }}>
           {fmtTime(b.startsAt, tz, lang)}
         </b>
-        {withDay && <span>{fmtDay(b.startsAt, tz, lang)}</span>}
+        {withDay && <span>{weekdayDay.format(new Date(b.startsAt))}</span>}
       </div>
       <div className="item-main">
         <div className="item-title">{name(b.clientId)}</div>
@@ -233,7 +242,7 @@ function Today({ data, name, typeName, act }: { data: TrainerData; name(id: stri
             {t('tr.noShow')}
           </Button>
         </div>
-      ) : (
+      ) : b.status === 'booked' ? null : (
         <span className={`badge${b.status === 'attended' ? ' badge-brand' : b.status === 'no_show' ? ' badge-warn' : ''}`}>{t(`status.${b.status}` as Key)}</span>
       )}
     </div>
@@ -270,8 +279,9 @@ function Month({ data }: { data: TrainerData }) {
   const { trainer } = useApp();
   const { t, lang } = useI18n();
   const s = monthStats(data, Date.now(), trainer.timezone);
+  const month = new Intl.DateTimeFormat(lang === 'it' ? 'it-IT' : 'en-GB', { timeZone: trainer.timezone, month: 'long', year: 'numeric' }).format(new Date());
   const whole = useCallback((v: number) => String(Math.round(v)), []);
-  const money = useCallback((v: number) => fmtMoney(Math.round(v), trainer.currency, lang), [trainer.currency, lang]);
+  const money = useCallback((v: number) => fmtMoney(Math.round(v), trainer.currency, lang, true), [trainer.currency, lang]);
   const pct = useCallback((v: number) => `${Math.round(v)}%`, []);
   const tiles: { label: Key; value: number; format(v: number): string }[] = [
     { label: 'tr.m.sessions', value: s.sessionsDone, format: whole },
@@ -282,6 +292,8 @@ function Month({ data }: { data: TrainerData }) {
     { label: 'tr.m.late', value: s.lateCancels, format: whole },
   ];
   return (
+    <>
+    <h2 className="section-title month-title">{month}</h2>
     <motion.div className="stats" initial="hidden" animate="show" variants={{ show: { transition: { staggerChildren: 0.05 } } }}>
       <motion.div className="stat stat-wide" variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}>
         <div className="stat-value display tabular">
@@ -298,6 +310,7 @@ function Month({ data }: { data: TrainerData }) {
         </motion.div>
       ))}
     </motion.div>
+    </>
   );
 }
 
@@ -383,7 +396,7 @@ function Blocks({ data, act }: { data: TrainerData; act: Act }) {
   );
 }
 
-function ClientSheet({ client, data, onClose, act }: { client: Client | null; data: TrainerData | null; onClose(): void; act: Act }) {
+function ClientSheet({ client, open, data, onClose, act }: { client: Client | null; open: boolean; data: TrainerData | null; onClose(): void; act: Act }) {
   const { api, trainer, types, toast } = useApp();
   const { t, lang } = useI18n();
   const tz = trainer.timezone;
@@ -398,7 +411,7 @@ function ClientSheet({ client, data, onClose, act }: { client: Client | null; da
   // One operation id per intended action: a double tap or a network retry reuses it.
   const packOp = useRef(crypto.randomUUID());
   const adjustOp = useRef(crypto.randomUUID());
-  if (!client || !data) return <Sheet open={false} onClose={onClose} title="">{null}</Sheet>;
+  if (!client || !data) return null;
   const bal = balanceOf(data.ledger, client.id);
 
   async function paid() {
@@ -420,7 +433,7 @@ function ClientSheet({ client, data, onClose, act }: { client: Client | null; da
   }
 
   return (
-    <Sheet open={!!client} onClose={onClose} title={client.name}>
+    <Sheet open={open} onClose={onClose} title={client.name}>
       <div className="stack">
         <div className="card card-brand row">
           <span className="display tabular" style={{ fontSize: 48, lineHeight: 1 }}>

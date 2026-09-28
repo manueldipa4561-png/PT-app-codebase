@@ -49,7 +49,7 @@ export interface DemoDB {
   products: Product[];
 }
 
-export const DEMO_VERSION = 4;
+export const DEMO_VERSION = 5;
 export const DEMO_USER = 'demo-user';
 export const DEMO_EMAIL = 'sara.conti@example.com';
 export const DEMO_PAYMENT_URL = 'https://buy.stripe.com/demo';
@@ -128,13 +128,13 @@ const type = (id: string, trainerId: string, name: string, description: string, 
 const SESSION_TYPES: SessionType[] = [
   type('st-marco-1', 'tr-marco', 'Personal 1:1', 'Programma su misura, tecnica seguita ripetizione per ripetizione.', 60, 1, 1, 0),
   type('st-marco-2', 'tr-marco', 'Duo', 'Allenati con un amico: stesso coach, stesso programma.', 60, 2, 1, 1),
-  type('st-marco-3', 'tr-marco', 'Valutazione iniziale', 'Test di partenza, obiettivi e piano di lavoro. Gratuita.', 45, 1, 0, 2),
+  type('st-marco-3', 'tr-marco', 'Valutazione iniziale', 'Test di partenza, obiettivi e piano di lavoro.', 45, 1, 0, 2),
   type('st-giulia-1', 'tr-giulia', 'Reformer privata', 'Lezione individuale sul reformer, ritmo e carichi su misura.', 50, 1, 1, 0),
   type('st-giulia-2', 'tr-giulia', 'Postura e mobilità', 'Schiena, anche e spalle. Ideale dopo molte ore alla scrivania.', 45, 1, 1, 1),
   type('st-giulia-3', 'tr-giulia', 'Mat in piccolo gruppo', 'Al massimo cinque persone, il mercoledì sera e il sabato mattina.', 60, 5, 1, 2),
   type('st-luca-1', 'tr-luca', 'Functional 1:1', "Forza, mobilità e condizionamento in un'ora.", 60, 1, 1, 0),
   type('st-luca-2', 'tr-luca', 'Small group', 'Fino a quattro persone, martedì e giovedì alle 19.', 60, 4, 1, 1),
-  type('st-luca-3', 'tr-luca', 'Check-up', 'Misure, test e aggiornamento del programma. Gratuito.', 30, 1, 0, 2),
+  type('st-luca-3', 'tr-luca', 'Check-up', 'Misure, test e aggiornamento del programma.', 30, 1, 0, 2),
 ];
 
 let windowId = 0;
@@ -157,16 +157,17 @@ const AVAILABILITY: Availability[] = [
   ...slotWindow('tr-luca', [2, 4], '19:00', '20:00', 'Box Crocetta', 'st-luca-2'),
 ];
 
-const product = (id: string, trainerId: string, name: string, description: string, priceCents: number, sort: number): Product => ({
-  id, trainerId, name, description, priceCents, imageUrl: null, paymentUrl: DEMO_PAYMENT_URL, active: true, sort,
+const product = (id: string, trainerId: string, name: string, description: string, priceCents: number, sort: number, photo: string): Product => ({
+  id, trainerId, name, description, priceCents, imageUrl: `https://images.unsplash.com/${photo}?w=600&q=70&auto=format&fit=crop`,
+  paymentUrl: DEMO_PAYMENT_URL, active: true, sort,
 });
 
 const PRODUCTS: Product[] = [
-  product('pr-marco-1', 'tr-marco', 'Whey isolate 1 kg', 'Gusto vaniglia. La ritiri in palestra alla prossima sessione.', 3990, 0),
-  product('pr-marco-2', 'tr-marco', 'Kit elastici', 'Tre resistenze e una borsa, per allenarti anche in viaggio.', 2490, 1),
-  product('pr-marco-3', 'tr-marco', 'Shaker', 'Il logo del coach, 700 ml, va in lavastoviglie.', 1200, 2),
-  product('pr-giulia-1', 'tr-giulia', 'Pilates ring', 'Lo stesso che usiamo in studio. Leggero e resistente.', 2900, 0),
-  product('pr-giulia-2', 'tr-giulia', 'Calze antiscivolo', 'Obbligatorie sul reformer. Taglie dalla 35 alla 46.', 1400, 1),
+  product('pr-marco-1', 'tr-marco', 'Whey isolate 1 kg', 'Gusto vaniglia. La ritiri in palestra alla prossima sessione.', 3990, 0, 'photo-1774793476275-6405438753d6'),
+  product('pr-marco-2', 'tr-marco', 'Kit elastici', 'Tre resistenze e una borsa, per allenarti anche in viaggio.', 2490, 1, 'photo-1584735935682-2f2b69dff9d2'),
+  product('pr-marco-3', 'tr-marco', 'Shaker', 'Il logo del coach, 700 ml, va in lavastoviglie.', 1200, 2, 'photo-1642539088032-41a1fb000bc5'),
+  product('pr-giulia-1', 'tr-giulia', 'Pilates ring', 'Lo stesso che usiamo in studio. Leggero e resistente.', 2900, 0, 'photo-1715780463401-b9ef0567943e'),
+  product('pr-giulia-2', 'tr-giulia', 'Calze antiscivolo', 'Obbligatorie sul reformer. Taglie dalla 35 alla 46.', 1400, 1, 'photo-1747239069226-55382c570116'),
 ];
 
 interface SeedSpec {

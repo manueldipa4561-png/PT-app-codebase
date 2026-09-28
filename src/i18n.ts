@@ -1,7 +1,7 @@
 // UI copy in Italian (default) and English, plus Intl-based formatters.
 // Rule for copy: plain sentences, no em-dashes, no contest words ("vinci") near the referral.
 import { createContext, useContext } from 'react';
-import type { ErrorCode, Locale } from './domain.ts';
+import { localParts, type ErrorCode, type Locale } from './domain.ts';
 
 const it = {
   'nav.home': 'Home',
@@ -19,7 +19,7 @@ const it = {
   'home.book': 'Prenota una sessione',
   'home.pack': 'Il tuo pacchetto',
   'home.lowTitle': 'Stai per finire il pacchetto',
-  'home.lowBody': 'Ti restano {left}. Rinnova con {trainer} e non perdere il ritmo.',
+  'home.lowBody': 'Rinnova con {trainer} per non perdere il ritmo.',
   'home.emptyTitle': 'Pacchetto esaurito',
   'home.emptyBody': 'Per prenotare serve un nuovo pacchetto. Scrivi a {trainer}.',
   'home.owedBody': 'Hai {left} da saldare con {trainer}.',
@@ -46,7 +46,7 @@ const it = {
   'book.noDays': 'Nessun orario libero nei prossimi giorni. Scrivi a {trainer}.',
   'book.confirmTitle': 'Conferma la prenotazione',
   'book.policy': 'Cancellazione gratuita fino a {h} ore prima. Dopo, la sessione viene scalata.',
-  'book.after': 'Dopo la prenotazione: {left}',
+  'book.after': 'Dopo la prenotazione',
   'book.confirm': 'Conferma',
   'book.done': 'Prenotato',
   'book.doneBody': 'Ti aspettiamo {when}.',
@@ -71,7 +71,7 @@ const it = {
   'status.no_show': 'Assente',
   'refer.title': 'Invita un amico',
   'refer.headline': 'Allenati con chi vuoi.',
-  'refer.sub': 'Quando il tuo amico paga il primo pacchetto, ricevete {you} tu e {friend} lui.',
+  'refer.sub': 'Quando chi inviti paga il primo pacchetto, tu ricevi {you} e chi hai invitato {friend}.',
   'refer.pass': 'Invito personale',
   'refer.code': 'Il tuo codice',
   'refer.copy': 'Copia link',
@@ -81,7 +81,7 @@ const it = {
   'refer.shareMsg': 'Mi alleno con {trainer}. Entra con il mio invito: con il primo pacchetto hai una sessione in regalo. {link}',
   'refer.how': 'Come funziona',
   'refer.how1': 'Condividi il tuo link personale.',
-  'refer.how2': 'Il tuo amico si iscrive e paga il primo pacchetto.',
+  'refer.how2': 'Chi inviti si iscrive e paga il primo pacchetto.',
   'refer.how3': 'Le sessioni bonus arrivano a entrambi, in automatico.',
   'refer.friends': 'I tuoi inviti',
   'refer.none': 'Ancora nessun invito.',
@@ -166,6 +166,9 @@ const it = {
   'tr.packToast': 'Pacchetto registrato.',
   'tr.rewardToast': 'Pacchetto registrato. Bonus invito assegnato a entrambi.',
   'tr.reverse': 'Annulla bonus',
+  'tr.invitedBy': 'Invito di {name}, {date}',
+  'tr.ref.pending': 'In attesa',
+  'tr.ref.rewarded': 'Bonus dato',
   'tr.m.sessions': 'Sessioni svolte',
   'tr.m.self': 'Prenotate dai clienti',
   'tr.m.newClients': 'Nuovi clienti',
@@ -204,9 +207,11 @@ const it = {
   'demo.trainer': 'Trainer',
   'demo.invite': 'Pagina invito',
   'demo.reset': 'Reset',
-  'demo.copyJson': 'Copia tema JSON',
-  'demo.copied': 'Tema copiato',
+  'demo.copyJson': 'Copia SQL di attivazione',
+  'demo.copied': 'SQL copiato',
   'demo.open': 'Demo',
+  'demo.openLabel': 'Apri il pannello della demo',
+  'demo.brandTitle': 'Il tuo brand',
   'plan.web': 'Web',
   'plan.pro': 'Pro',
   'plan.store': 'Store',
@@ -225,6 +230,7 @@ const it = {
   'error.generic': 'Qualcosa è andato storto. Riprova.',
   'common.retry': 'Riprova',
   'common.close': 'Chiudi',
+  'common.showAll': 'Mostra tutto ({n})',
   'common.cancel': 'Annulla',
   'common.back': 'Indietro',
   'common.loading': 'Caricamento',
@@ -255,7 +261,7 @@ const en: Record<Key, string> = {
   'home.book': 'Book a session',
   'home.pack': 'Your pack',
   'home.lowTitle': 'Your pack is almost used up',
-  'home.lowBody': 'You have {left}. Renew with {trainer} and keep your rhythm.',
+  'home.lowBody': 'Renew with {trainer} and keep your rhythm.',
   'home.emptyTitle': 'Pack used up',
   'home.emptyBody': 'You need a new pack to book. Message {trainer}.',
   'home.owedBody': 'You owe {left} to {trainer}.',
@@ -282,7 +288,7 @@ const en: Record<Key, string> = {
   'book.noDays': 'No free times in the next days. Message {trainer}.',
   'book.confirmTitle': 'Confirm your booking',
   'book.policy': 'Free cancellation up to {h} hours before. After that, the session is charged.',
-  'book.after': 'After booking: {left}',
+  'book.after': 'After booking',
   'book.confirm': 'Confirm',
   'book.done': 'Booked',
   'book.doneBody': 'See you {when}.',
@@ -402,6 +408,9 @@ const en: Record<Key, string> = {
   'tr.packToast': 'Pack recorded.',
   'tr.rewardToast': 'Pack recorded. Invite bonus given to both.',
   'tr.reverse': 'Cancel bonus',
+  'tr.invitedBy': 'Invited by {name}, {date}',
+  'tr.ref.pending': 'Pending',
+  'tr.ref.rewarded': 'Bonus given',
   'tr.m.sessions': 'Sessions done',
   'tr.m.self': 'Booked by clients',
   'tr.m.newClients': 'New clients',
@@ -440,9 +449,11 @@ const en: Record<Key, string> = {
   'demo.trainer': 'Trainer',
   'demo.invite': 'Invite page',
   'demo.reset': 'Reset',
-  'demo.copyJson': 'Copy theme JSON',
-  'demo.copied': 'Theme copied',
+  'demo.copyJson': 'Copy go-live SQL',
+  'demo.copied': 'SQL copied',
   'demo.open': 'Demo',
+  'demo.openLabel': 'Open the demo panel',
+  'demo.brandTitle': 'Your brand',
   'plan.web': 'Web',
   'plan.pro': 'Pro',
   'plan.store': 'Store',
@@ -461,6 +472,7 @@ const en: Record<Key, string> = {
   'error.generic': 'Something went wrong. Try again.',
   'common.retry': 'Try again',
   'common.close': 'Close',
+  'common.showAll': 'Show all ({n})',
   'common.cancel': 'Cancel',
   'common.back': 'Back',
   'common.loading': 'Loading',
@@ -515,15 +527,18 @@ export const fmtDay = (iso: string, tz: string, lang: Locale) =>
 export const fmtLongDay = (iso: string, tz: string, lang: Locale) =>
   new Intl.DateTimeFormat(tag(lang), { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(iso));
 
-export const fmtMoney = (cents: number, currency: string, lang: Locale) =>
-  new Intl.NumberFormat(tag(lang), { style: 'currency', currency }).format(cents / 100);
+/** `whole` drops the cents, for totals: "2520 €" instead of "2520,00 €". */
+export const fmtMoney = (cents: number, currency: string, lang: Locale, whole = false) =>
+  new Intl.NumberFormat(tag(lang), { style: 'currency', currency, ...(whole && { minimumFractionDigits: 0, maximumFractionDigits: 0 }) }).format(cents / 100);
 
-export function fmtRelative(iso: string, now: number, lang: Locale): string {
-  const diff = Date.parse(iso) - now;
+/** "tra 20 minuti", "tra 3 ore" today; "domani", "dopodomani", "tra 5 giorni" by calendar day in the trainer's zone. */
+export function fmtRelative(iso: string, now: number, lang: Locale, tz: string): string {
+  const at = Date.parse(iso);
   const rtf = new Intl.RelativeTimeFormat(tag(lang), { numeric: 'auto' });
-  const hours = Math.round(diff / 3_600_000);
-  if (Math.abs(hours) < 24) return rtf.format(hours, 'hour');
-  return rtf.format(Math.round(diff / 86_400_000), 'day');
+  const days = Math.round((Date.parse(localParts(at, tz).date) - Date.parse(localParts(now, tz).date)) / 86_400_000);
+  if (days !== 0) return rtf.format(days, 'day');
+  const mins = Math.round((at - now) / 60_000);
+  return Math.abs(mins) < 60 ? rtf.format(mins, 'minute') : rtf.format(Math.round(mins / 60), 'hour');
 }
 
 export function greetingKey(now: number, tz: string): Key {

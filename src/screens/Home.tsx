@@ -1,8 +1,8 @@
-import { CalendarPlus, ChatCircleText, Clock, Gift, MapPin, ShoppingBag, UserCircle } from '@phosphor-icons/react';
+import { CalendarPlus, CaretRight, ChatCircleText, Clock, Gift, MapPin, ShoppingBag, UserCircle } from '@phosphor-icons/react';
 import { motion } from 'motion/react';
 import { HeroGL } from '../HeroGL.tsx';
 import { TEMPLATES } from '../theme.ts';
-import { firstName, googleCalendarUrl, icsEvent, whatsappLink, type Booking } from '../domain.ts';
+import { firstName, googleCalendarUrl, icsEvent, whatsappLink, type Booking, type TrainerPublic } from '../domain.ts';
 import { counted, fmtLongDay, fmtMoney, fmtRelative, fmtTime, greetingKey, useI18n } from '../i18n.ts';
 import { Button, Mark, Ring, useApp } from '../ui.tsx';
 
@@ -20,10 +20,28 @@ export function calendarLinks(b: Booking, title: string, tz: string) {
   };
 }
 
+/** The trainer's cover photo through the look's WebGL treatment (Home hero, invite page). */
+export function BrandCover({ trainer, dark }: { trainer: TrainerPublic; dark: boolean }) {
+  const spec = TEMPLATES[trainer.template];
+  return (
+    <HeroGL
+      src={trainer.theme.cover}
+      brand={trainer.theme.brand}
+      accent={trainer.theme.accent ?? trainer.theme.brand}
+      base={(dark ? spec.dark : spec.light).bg}
+      mode={spec.shader.mode}
+      speed={spec.shader.speed}
+      grain={spec.shader.grain}
+      strength={spec.shader.strength}
+      fade={trainer.template === 'energy' ? 1 : 0}
+      alt={trainer.name}
+    />
+  );
+}
+
 export function Home() {
   const { trainer, me, bookings, balance, ledger, types, products, navigate, dark } = useApp();
   const { t, lang } = useI18n();
-  const spec = TEMPLATES[trainer.template];
   const now = Date.now();
   const tz = trainer.timezone;
   const coach = firstName(trainer.name);
@@ -39,7 +57,6 @@ export function Home() {
   const lastWord = words.length > 1 ? words.pop() : undefined;
   const cal = next ? calendarLinks(next, `${typeName(next.sessionTypeId)} · ${trainer.name}`, tz) : null;
   const askPack = whatsappLink(trainer.whatsapp, t('home.askPackMsg', { trainer: coach }));
-  const base = (dark ? spec.dark : spec.light).bg;
 
   return (
     <>
@@ -53,18 +70,7 @@ export function Home() {
           </button>
         </div>
         <div className="hero-media">
-          <HeroGL
-            src={trainer.theme.cover}
-            brand={trainer.theme.brand}
-            accent={trainer.theme.accent ?? trainer.theme.brand}
-            base={base}
-            mode={spec.shader.mode}
-            speed={spec.shader.speed}
-            grain={spec.shader.grain}
-            strength={spec.shader.strength}
-            fade={trainer.template === 'energy' ? 1 : 0}
-            alt={trainer.name}
-          />
+          <BrandCover trainer={trainer} dark={dark} />
         </div>
         <motion.div className="hero-copy" {...rise(0)}>
           <p className="hero-greet">
@@ -80,9 +86,14 @@ export function Home() {
       <motion.section className="pad section" {...rise(1)}>
         {next && cal ? (
           <article className="card card-brand">
-            <p className="card-eyebrow muted">
-              {t('home.next')} · {fmtRelative(next.startsAt, now, lang)}
-            </p>
+            <div className="card-head">
+              <p className="card-eyebrow muted">
+                {t('home.next')} · {fmtRelative(next.startsAt, now, lang, tz)}
+              </p>
+              <button className="link-btn" onClick={() => navigate('/agenda')}>
+                {t('home.manage')} <CaretRight size={14} weight="bold" aria-hidden />
+              </button>
+            </div>
             <p className="next-when display">
               {fmtLongDay(next.startsAt, tz, lang)}, {fmtTime(next.startsAt, tz, lang)}
             </p>
@@ -103,9 +114,6 @@ export function Home() {
               <a className="btn btn-secondary" href={cal.google} target="_blank" rel="noreferrer">
                 Google
               </a>
-              <button className="btn btn-secondary" onClick={() => navigate('/agenda')}>
-                {t('home.manage')}
-              </button>
             </div>
           </article>
         ) : (
@@ -129,13 +137,13 @@ export function Home() {
             <h3 className="display">{counted(t, lang, 'left', Math.max(0, balance))}</h3>
             {balance < 0 && <p>{t('home.owedBody', { left: counted(t, lang, 'sessions', -balance), trainer: coach })}</p>}
             {balance === 0 && <p>{t('home.emptyBody', { trainer: coach })}</p>}
-            {balance > 0 && balance <= 2 && <p>{t('home.lowBody', { left: counted(t, lang, 'sessions', balance), trainer: coach })}</p>}
-            {balance <= 2 && (
-              <a className="btn btn-primary" style={{ marginTop: 12 }} href={askPack} target="_blank" rel="noreferrer">
-                <ChatCircleText size={18} aria-hidden /> {t('home.askPack')}
-              </a>
-            )}
+            {balance > 0 && balance <= 2 && <p>{t('home.lowBody', { trainer: coach })}</p>}
           </div>
+          {balance <= 2 && (
+            <a className="btn btn-primary btn-block pack-cta" href={askPack} target="_blank" rel="noreferrer">
+              <ChatCircleText size={18} aria-hidden /> {t('home.askPack')}
+            </a>
+          )}
         </article>
       </motion.section>
 
@@ -166,7 +174,7 @@ export function Home() {
             {products.map((p) => (
               <button key={p.id} className="product" onClick={() => navigate('/shop')}>
                 <span className="product-art" aria-hidden>
-                  <ShoppingBag size={34} weight="duotone" />
+                  {p.imageUrl ? <img src={p.imageUrl} alt="" loading="lazy" /> : <ShoppingBag size={34} weight="duotone" />}
                 </span>
                 <span className="product-name">{p.name}</span>
                 <span className="product-price">{fmtMoney(p.priceCents, trainer.currency, lang)}</span>
