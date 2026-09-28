@@ -11,6 +11,17 @@
   to = "/index.html"
   status = 200
 
+# Every response: no other site may frame the app (clickjacking a booking or a "pack paid"),
+# no MIME sniffing, and other sites never see a full URL (invite codes live in paths).
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    Content-Security-Policy = "frame-ancestors 'none'; base-uri 'self'; object-src 'none'"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
+
 [[headers]]
   for = "/assets/*"
   [headers.values]
