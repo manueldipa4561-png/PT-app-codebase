@@ -28,7 +28,7 @@ Before you start: the trainer paid the first month and signed the terms and the 
 6. **Page head (2 min).** Open `view-source:https://<their app>` in the browser. The title, theme color and manifest must be the trainer's.
 7. **Owner (2 min).** The trainer opens `https://<their app>/admin` and signs in with the email in `ownerEmail`. The admin opens: the link to their login is automatic.
 8. **Pages (5 min).** Their privacy page and referral rules page are online ([GDPR.md](GDPR.md)).
-9. **Handover (10 min).** Show the trainer the admin: book for a client, block time, "pack paid", attended or no-show, invites, the CSV export. Remind them: no health information in notes. Then they share their app link with their clients.
+9. **Handover (10 min).** Show the trainer the admin: book for a client, block time, "pack paid", attended or no-show, invites, the CSV export. Remind them: no health information in notes. Then they share their app link with their clients: the first screen has **Installa l'app** (Android installs in one tap, iPhone shows the two taps in the Share menu), so clients get the trainer's icon on the home screen without a store.
 
 ## Offboard a trainer
 

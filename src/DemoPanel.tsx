@@ -7,10 +7,9 @@ import { COVER_CHOICES, DEMO_USER, PHOTOS, type DemoDB, type DemoTrainer } from 
 import { TEMPLATE_LIST } from './theme.ts';
 import type { Plan } from './domain.ts';
 import { translator, type Key } from './i18n.ts';
-import { brandParam, type BrandPatch } from './demoBrand.ts';
+import { CUSTOM_SLUG, brandParam, type BrandPatch } from './demoBrand.ts';
 
 const CUSTOM_ID = 'tr-custom';
-export const CUSTOM_SLUG = 'il-tuo-brand';
 const DATA_FROM = 'tr-marco'; // the preview reuses a full calendar, clients and shop
 const t = translator('it');
 

@@ -289,6 +289,9 @@ img { display: block; max-width: 100%; }
 .input:focus { outline: 2px solid var(--brand-text); outline-offset: 0; border-color: transparent; }
 .check { display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start; font-size: 14px; color: var(--muted); }
 .check input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--brand); }
+.steps { list-style: none; margin: 4px 0 16px; padding: 0; display: grid; gap: 14px; }
+.steps li { display: grid; grid-template-columns: 24px 1fr; gap: 12px; align-items: center; }
+.steps svg { color: var(--brand-text); }
 .code-input { letter-spacing: 0.5em; text-align: center; font-size: 24px; font-variant-numeric: tabular-nums; }
 
 /* ── states ────────────────────────────────────────────────────────────────── */

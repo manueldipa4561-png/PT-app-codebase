@@ -6,6 +6,16 @@ import type { DemoTrainer } from './seed.ts';
 
 export type BrandPatch = Partial<Omit<DemoTrainer, 'theme'>> & { theme?: Partial<Theme> };
 
+/** The demo's own brand ("Crea il tuo brand"): ?t=il-tuo-brand&brand=... */
+export const CUSTOM_SLUG = 'il-tuo-brand';
+
+/** A demo link's query for one trainer: ?t=, plus ?brand= for the demo's own brand. */
+export function demoQuery(slug: string, brand: string | null): string {
+  const q = new URLSearchParams({ t: slug });
+  if (slug === CUSTOM_SLUG && brand) q.set('brand', brand);
+  return `?${q}`;
+}
+
 const PLANS: readonly Plan[] = ['web', 'pro', 'store'];
 
 /** The brand as a URL-safe string: base64url of its JSON. An uploaded logo (a data: URL) is too big and stays out. */

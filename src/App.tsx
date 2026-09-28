@@ -7,8 +7,8 @@ import { TEMPLATES, initials, isDark, readableOn, themeVars } from './theme.ts';
 import { I18nContext, errorText, translator, useI18n } from './i18n.ts';
 import { AppContext, ErrorState, Skeleton, Toasts, useApp, useToasts, type AppState } from './ui.tsx';
 import type { DemoApi } from './demo.ts';
-import { CUSTOM_SLUG, DemoPanel, saveCustomBrand } from './DemoPanel.tsx';
-import { brandFromParam } from './demoBrand.ts';
+import { DemoPanel, saveCustomBrand } from './DemoPanel.tsx';
+import { CUSTOM_SLUG, brandFromParam, demoQuery } from './demoBrand.ts';
 import { Home } from './screens/Home.tsx';
 import { Book } from './screens/Book.tsx';
 import { Agenda } from './screens/Agenda.tsx';
@@ -110,6 +110,11 @@ function applyIdentity(t: TrainerPublic) {
   };
   meta('theme-color', t.theme.brand);
   meta('apple-mobile-web-app-title', t.name);
+  // The demo switches trainer without a reload: installing must give the trainer on screen.
+  if (DEMO_MODE) {
+    const query = demoQuery(t.slug, new URLSearchParams(location.search).get('brand'));
+    document.querySelector('link[rel="manifest"]')?.setAttribute('href', `/manifest.webmanifest${query}`);
+  }
   let icon = t.theme.logo;
   if (!icon) {
     const c = document.createElement('canvas');

@@ -4,6 +4,7 @@ import { Gift } from '@phosphor-icons/react';
 import { AppError, REFERRAL_CODE, isEmail } from '../domain.ts';
 import { errorText, useI18n } from '../i18n.ts';
 import { Button, Field, Mark, useApp } from '../ui.tsx';
+import { InstallApp } from '../install.tsx';
 import { BrandCover } from './Home.tsx';
 
 const REF_KEY = 'pt-ref';
@@ -28,7 +29,6 @@ export function Join({ referralCode }: { referralCode?: string }) {
   const [terms, setTerms] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const inAppBrowser = /Instagram|FBAN|FBAV|Line\//i.test(navigator.userAgent);
 
   useEffect(() => {
     if (!referralCode) return;
@@ -98,11 +98,9 @@ export function Join({ referralCode }: { referralCode?: string }) {
             {t('join.invited')}: {ref}
           </p>
         )}
-        {inAppBrowser && (
-          <p className="card card-soft" style={{ marginTop: 16, fontSize: 14 }}>
-            {t('join.inApp')}
-          </p>
-        )}
+        <div style={{ marginTop: 20 }}>
+          <InstallApp beforeSignIn />
+        </div>
       </motion.div>
 
       <form className="card stack" style={{ marginTop: 28 }} onSubmit={submit} noValidate>

@@ -1,21 +1,12 @@
-import { useEffect, useState } from 'react';
-import { ChatCircleText, DeviceMobile, ShieldCheck, SignOut, Trash } from '@phosphor-icons/react';
+import { useState } from 'react';
+import { ChatCircleText, ShieldCheck, SignOut, Trash } from '@phosphor-icons/react';
 import { AppError, firstName, whatsappLink, type Locale } from '../domain.ts';
 import { counted, errorText, fmtDay, useI18n, type Key } from '../i18n.ts';
 import { initials } from '../theme.ts';
 import { Button, Segmented, Sheet, useApp } from '../ui.tsx';
+import { InstallApp, isInstalled } from '../install.tsx';
 
-interface InstallPrompt extends Event {
-  prompt(): Promise<void>;
-}
-let deferredInstall: InstallPrompt | null = null;
 const HISTORY = 5; // latest pack movements shown before "show all"
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferredInstall = e as InstallPrompt;
-  });
-}
 
 export function Profile() {
   const { api, trainer, me, ledger, refresh, navigate, toast } = useApp();
@@ -24,19 +15,10 @@ export function Profile() {
   const [word, setWord] = useState('');
   const [busy, setBusy] = useState(false);
   const [rules, setRules] = useState(false);
-  const [canInstall, setCanInstall] = useState(!!deferredInstall);
   const [allHistory, setAllHistory] = useState(false);
   const coach = firstName(trainer.name);
   const client = me.client;
-  const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
-  const installed = matchMedia('(display-mode: standalone)').matches;
   const confirmWord = t('profile.deleteWord');
-
-  useEffect(() => {
-    const on = () => setCanInstall(true);
-    window.addEventListener('beforeinstallprompt', on);
-    return () => window.removeEventListener('beforeinstallprompt', on);
-  }, []);
 
   async function signOut() {
     try {
@@ -94,26 +76,9 @@ export function Profile() {
         />
       </section>
 
-      {!installed && (
+      {!isInstalled() && (
         <section className="pad section">
-          <article className="card card-soft">
-            <div className="row" style={{ alignItems: 'flex-start' }}>
-              <DeviceMobile size={26} aria-hidden />
-              <div>
-                <p className="card-title display" style={{ fontSize: 20 }}>
-                  {t('profile.install')}
-                </p>
-                <p className="muted" style={{ margin: '4px 0 0', fontSize: 14 }}>
-                  {ios ? t('profile.installIos') : t('profile.installAndroid')}
-                </p>
-                {canInstall && (
-                  <Button style={{ marginTop: 12 }} onClick={() => deferredInstall?.prompt()}>
-                    {t('profile.installNow')}
-                  </Button>
-                )}
-              </div>
-            </div>
-          </article>
+          <InstallApp />
         </section>
       )}
 
