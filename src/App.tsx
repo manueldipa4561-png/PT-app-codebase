@@ -7,7 +7,8 @@ import { TEMPLATES, initials, isDark, readableOn, themeVars } from './theme.ts';
 import { I18nContext, errorText, translator, useI18n } from './i18n.ts';
 import { AppContext, ErrorState, Skeleton, Toasts, useApp, useToasts, type AppState } from './ui.tsx';
 import type { DemoApi } from './demo.ts';
-import { DemoPanel } from './DemoPanel.tsx';
+import { CUSTOM_SLUG, DemoPanel, saveCustomBrand } from './DemoPanel.tsx';
+import { brandFromParam } from './demoBrand.ts';
 import { Home } from './screens/Home.tsx';
 import { Book } from './screens/Book.tsx';
 import { Agenda } from './screens/Agenda.tsx';
@@ -25,12 +26,28 @@ export function App() {
 
   useEffect(() => {
     createApi()
-      .then(setApi)
+      .then((a) => {
+        if (DEMO_MODE) {
+          // A demo link never dead-ends: a custom brand in the link is rebuilt on this device, and a
+          // trainer this device does not know (a brand made in another browser) opens the default demo.
+          const demo = a as DemoApi;
+          const shared = brandFromParam(new URLSearchParams(location.search).get('brand'));
+          if (shared && key === CUSTOM_SLUG) saveCustomBrand(demo, shared);
+          if (!demo.db().trainers.some((x) => x.slug === key)) {
+            const url = new URL(location.href);
+            url.searchParams.set('t', DEFAULT_DEMO_TRAINER);
+            url.searchParams.delete('brand');
+            history.replaceState(null, '', url);
+            setKey(DEFAULT_DEMO_TRAINER);
+          }
+        }
+        setApi(a);
+      })
       .catch((e) => {
         console.error('could not start the data source', e);
         setFailed(true);
       });
-  }, []);
+  }, []); // once, for the trainer the page was opened with
 
   if (failed) return <p style={{ padding: 24 }}>Impossibile avviare l'app. Ricarica la pagina.</p>;
   if (!api) return null;
@@ -47,6 +64,7 @@ export function App() {
             setKey(slug);
             const url = new URL(location.href);
             url.searchParams.set('t', slug);
+            url.searchParams.delete('brand'); // the panel puts it back for the custom brand
             history.replaceState(null, '', url);
           }}
           onChange={() => setVersion((v) => v + 1)}
@@ -180,8 +198,8 @@ function TrainerApp({ api, trainerKey: key, version }: { api: Api; trainerKey: s
 
   const navigate = useCallback((to: string) => {
     const url = new URL(to, location.origin);
-    const t = new URLSearchParams(location.search).get('t');
-    if (t && !url.searchParams.has('t')) url.searchParams.set('t', t);
+    // the demo's ?t= and ?brand= follow every screen, so a link copied from any page still opens this brand
+    if (!url.search) url.search = location.search;
     history.pushState(null, '', url.pathname + url.search);
     setPath(url.pathname);
   }, []);

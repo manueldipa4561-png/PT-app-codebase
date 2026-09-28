@@ -5,12 +5,42 @@ import { ArrowCounterClockwise, Check, Copy, Palette, SlidersHorizontal, UploadS
 import type { DemoApi } from './demo.ts';
 import { COVER_CHOICES, DEMO_USER, PHOTOS, type DemoDB, type DemoTrainer } from './seed.ts';
 import { TEMPLATE_LIST } from './theme.ts';
-import type { Plan, Theme } from './domain.ts';
+import type { Plan } from './domain.ts';
 import { translator, type Key } from './i18n.ts';
+import { brandParam, type BrandPatch } from './demoBrand.ts';
 
 const CUSTOM_ID = 'tr-custom';
+export const CUSTOM_SLUG = 'il-tuo-brand';
 const DATA_FROM = 'tr-marco'; // the preview reuses a full calendar, clients and shop
 const t = translator('it');
+
+/** Creates or updates the demo's custom brand, a copy of Marco's calendar, clients and shop. */
+export function saveCustomBrand(api: DemoApi, patch: BrandPatch): DemoTrainer {
+  const db = api.db();
+  const custom = db.trainers.find((x) => x.id === CUSTOM_ID);
+  const base: DemoTrainer = custom ?? {
+    ...db.trainers.find((x) => x.id === DATA_FROM)!,
+    id: CUSTOM_ID,
+    slug: CUSTOM_SLUG,
+    ownerUserId: 'owner-custom',
+    name: 'Il tuo nome',
+    tagline: 'Il tuo stile, i tuoi clienti, la tua app.',
+    template: 'studio',
+    plan: 'pro',
+    theme: { brand: '#E4572E', accent: '#FFB38A', mode: 'auto', cover: PHOTOS.rack },
+  };
+  const next: DemoTrainer = { ...base, ...patch, theme: { ...base.theme, ...patch.theme } };
+  if (custom) api.upsertTrainer(next);
+  else api.cloneTrainer(DATA_FROM, next);
+  return next;
+}
+
+/** Puts the custom brand in the address bar (?brand=), so the link opens it on any device. */
+function syncBrandParam(tr: DemoTrainer) {
+  const url = new URL(location.href);
+  url.searchParams.set('brand', brandParam(tr));
+  history.replaceState(history.state, '', url);
+}
 
 /**
  * The trainer as one app_private.onboard_trainer() call, ready for the Supabase SQL editor.
@@ -92,6 +122,7 @@ export function DemoPanel({ api, current, onPick, onChange }: { api: DemoApi; cu
   function pick(slug: string) {
     api.setActor(DEMO_USER);
     onPick(slug);
+    if (custom && slug === custom.slug) syncBrandParam(custom);
     go('/');
     changed();
     setOpen(false); // on a phone, show the result right away
@@ -113,25 +144,13 @@ export function DemoPanel({ api, current, onPick, onChange }: { api: DemoApi; cu
     setOpen(false);
   }
 
-  function edit(patch: Partial<Omit<DemoTrainer, 'theme'>> & { theme?: Partial<Theme> }) {
-    const base: DemoTrainer = custom ?? {
-      ...db.trainers.find((x) => x.id === DATA_FROM)!,
-      id: CUSTOM_ID,
-      slug: 'il-tuo-brand',
-      ownerUserId: 'owner-custom',
-      name: 'Il tuo nome',
-      tagline: 'Il tuo stile, i tuoi clienti, la tua app.',
-      template: 'studio',
-      plan: 'pro',
-      theme: { brand: '#E4572E', accent: '#FFB38A', mode: 'auto', cover: PHOTOS.rack },
-    };
-    const next: DemoTrainer = { ...base, ...patch, theme: { ...base.theme, ...patch.theme } };
-    if (custom) api.upsertTrainer(next);
-    else api.cloneTrainer(DATA_FROM, next);
+  function edit(patch: BrandPatch) {
+    const next = saveCustomBrand(api, patch);
     if (current !== next.slug) {
       api.setActor(DEMO_USER);
       onPick(next.slug);
     }
+    syncBrandParam(next); // every change keeps the link shareable
     changed();
   }
 
