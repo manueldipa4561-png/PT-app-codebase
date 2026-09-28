@@ -87,7 +87,12 @@ export interface Api {
   removeTimeOff(id: string): Promise<void>;
 }
 
-export const DEMO_MODE = !import.meta.env.VITE_SUPABASE_URL;
+// Our names first, then the ones Netlify's Supabase extension sets (VITE_SUPABASE_DATABASE_URL is the
+// project's https URL despite its name) and the one Supabase's dashboard suggests for the new keys.
+const SUPABASE_URL: string | undefined = import.meta.env.VITE_SUPABASE_URL || import.meta.env.VITE_SUPABASE_DATABASE_URL;
+const SUPABASE_KEY: string | undefined = import.meta.env.VITE_SUPABASE_ANON_KEY || import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+
+export const DEMO_MODE = !SUPABASE_URL;
 export const DEFAULT_DEMO_TRAINER = 'marco-bellini';
 
 /** Demo when no Supabase project is configured (the free Netlify demo), live otherwise. */
@@ -97,7 +102,7 @@ export async function createApi(): Promise<Api> {
     return createDemoApi({ storage: browserStorage(), latencyMs: 160 });
   }
   const { createSupabaseApi } = await import('./supabase.ts');
-  return createSupabaseApi(import.meta.env.VITE_SUPABASE_URL as string, import.meta.env.VITE_SUPABASE_ANON_KEY as string);
+  return createSupabaseApi(SUPABASE_URL as string, SUPABASE_KEY as string);
 }
 
 /**

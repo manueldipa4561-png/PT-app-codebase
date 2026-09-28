@@ -105,6 +105,8 @@ Everything in the code is ready: the only thing left is the Supabase project and
    - `VITE_SUPABASE_ANON_KEY` and `SUPABASE_ANON_KEY`: the public key, either the **publishable** key (`sb_publishable_...`) or the legacy **anon** key. Both work.
    - `VITE_APP_BASE_DOMAIN` and `APP_BASE_DOMAIN` (optional): the domain whose subdomains are trainer slugs, for example `app.example.it`
 
+   Connected with Netlify's **Supabase extension** instead? Choose **Vite** as the framework: the names it sets (`SUPABASE_DATABASE_URL`, `SUPABASE_ANON_KEY` and their `VITE_` copies) work too, and so does `SUPABASE_PUBLISHABLE_KEY`. The extension also adds `SUPABASE_SERVICE_ROLE_KEY` and `SUPABASE_JWT_SECRET`: delete both, the app never uses them.
+
    The secret / service_role key never goes into Netlify, the repo or the frontend.
 8. **Deploy.** Push to the main branch, or start a deploy in Netlify. `VITE_` variables are baked in at build time: after changing one, deploy again. With these variables set the demo turns off: the site serves real trainers only. To keep the sales demo online, create a second Netlify site from the same repo with **no** environment variables.
 9. **First trainer and smoke test.** Add a trainer (next section). To try it before any real domain, put your Netlify address in the JSON (`"domain": "<your-site>.netlify.app"`) and run it. Then, on a phone: open the site, sign in with a real email (the code must arrive, not in spam), join, and book. Open `/admin` signed in with the trainer's email: you see the trainer admin. Mark a pack paid and watch the client's balance change.
