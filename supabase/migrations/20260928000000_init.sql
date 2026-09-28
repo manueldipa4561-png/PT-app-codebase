@@ -866,7 +866,20 @@ grant insert, update, delete on public.availability, public.time_off, public.pro
 -- a session type with bookings cannot be deleted (their history points at it): retire it with active = false
 grant insert, update on public.session_types to authenticated;
 revoke delete on public.session_types from anon, authenticated;
+-- Supabase's default grants also give the API roles table rights the app never uses: take them back
+revoke insert, update, delete on public.availability, public.time_off, public.products, public.session_types from anon;
+revoke truncate, references, trigger on all tables in schema public from anon, authenticated;
 
 -- Functions added by later migrations start closed: grant each one explicitly, like the ones above.
 alter default privileges in schema public revoke execute on functions from public;
 alter default privileges in schema public revoke execute on functions from anon, authenticated;
+
+-- ── storage: a public bucket for trainer logos, covers and product photos ───
+-- Files go in through the Supabase dashboard (Storage > brand); everyone can read them,
+-- so the theme's https URLs work in every app. Skipped where there is no Supabase Storage.
+do $$
+begin
+  if exists (select 1 from pg_namespace where nspname = 'storage') then
+    insert into storage.buckets (id, name, public) values ('brand', 'brand', true) on conflict (id) do nothing;
+  end if;
+end $$;
