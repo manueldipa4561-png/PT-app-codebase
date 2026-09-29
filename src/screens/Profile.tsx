@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChatCircleText, ShieldCheck, SignOut, Trash } from '@phosphor-icons/react';
+import { ChatCircleText, ShieldCheck, SignOut, SquaresFour, Trash } from '@phosphor-icons/react';
 import { AppError, firstName, whatsappLink, type Locale } from '../domain.ts';
 import { counted, errorText, fmtDay, useI18n, type Key } from '../i18n.ts';
 import { initials } from '../theme.ts';
@@ -83,6 +83,11 @@ export function Profile() {
       )}
 
       <section className="pad section stack">
+        {me.isOwner && (
+          <Button variant="secondary" block icon={<SquaresFour size={18} aria-hidden />} onClick={() => navigate('/admin')}>
+            {t('profile.admin')}
+          </Button>
+        )}
         <a className="btn btn-secondary btn-block" href={whatsappLink(trainer.whatsapp, '')} target="_blank" rel="noreferrer">
           <ChatCircleText size={18} aria-hidden /> {t('profile.contact', { trainer: coach })}
         </a>
