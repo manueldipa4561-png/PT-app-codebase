@@ -99,9 +99,9 @@ Before you start: the trainer paid the first month and signed the terms and the 
 
 1. **Spam.** Ask them to check spam and the Promotions tab, and to search for the sender address.
 2. **Newest code only.** A new code replaces the old one. Codes expire after 1 hour, and a client can ask for a new one once a minute.
-3. **Brevo.** Open the transactional email logs: was it sent, delivered, bounced or blocked? The free plan sends 300 emails a day.
-4. **Supabase.** Authentication > Rate Limits: 30 emails an hour by default with custom SMTP. Logs > Auth shows SMTP errors.
-5. **Templates.** Both **Magic Link** and **Confirm signup** must show `{{ .Token }}`. A new client who gets a link instead of a code means Confirm signup was missed.
+3. **Resend.** Open Emails in Resend: was it sent, delivered, bounced or blocked? The free plan sends 100 emails a day.
+4. **Supabase.** Authentication > Rate Limits: we set 100 emails an hour (the default with custom SMTP is lower). Logs > Auth shows SMTP errors.
+5. **Templates.** Both **Magic link or OTP** and **Confirm sign up** must show `{{ .Token }}`, and Sign In / Providers > Email > **Email OTP length** must be 6 (new projects start at 8). A new client who gets a link instead of a code means Confirm sign up was missed.
 
 ### The trainer signs in but does not see the admin
 

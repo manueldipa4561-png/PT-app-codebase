@@ -22,11 +22,11 @@ Deferred work from the CEO review and the outside review (Codex). Each item says
 - **Depends on:** nothing.
 
 ### Server booking confirmations and reminders
-- **What:** a Supabase Edge Function that emails booking confirmations, cancellations and reminders through Brevo, with the `.ics` attached. A scheduled job (Supabase Cron) sends the reminders, for example 24 hours before.
+- **What:** a Supabase Edge Function that emails booking confirmations, cancellations and reminders through Resend, with the `.ics` attached. A scheduled job (Supabase Cron) sends the reminders, for example 24 hours before.
 - **Why:** in v1 nobody sends booking email. The client only gets "Add to calendar" right after booking. A calendar entry is not a reminder system (outside review #9).
 - **Priority:** P1, before the second trainer.
 - **Effort:** M.
-- **Depends on:** Brevo SMTP, already needed to go live. The `.ics` builder exists: `icsEvent()` in `src/domain.ts`.
+- **Depends on:** Resend, already set up for the login codes. The `.ics` builder exists: `icsEvent()` in `src/domain.ts`.
 
 ## P2
 
