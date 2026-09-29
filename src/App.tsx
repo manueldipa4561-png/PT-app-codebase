@@ -5,7 +5,7 @@ import { createApi, DEFAULT_DEMO_TRAINER, DEMO_MODE, trainerKey, type Api, type 
 import { AppError, balanceOf, type Booking, type LedgerEntry, type Locale, type Product, type SessionType, type TrainerPublic } from './domain.ts';
 import { TEMPLATES, initials, isDark, readableOn, themeVars } from './theme.ts';
 import { I18nContext, errorText, translator, useI18n } from './i18n.ts';
-import { AppContext, ErrorState, Skeleton, Toasts, useApp, useToasts, type AppState } from './ui.tsx';
+import { AppContext, ErrorState, Skeleton, Toasts, useApp, useLiveRefresh, useToasts, type AppState } from './ui.tsx';
 import type { DemoApi } from './demo.ts';
 import { DemoPanel, saveCustomBrand } from './DemoPanel.tsx';
 import { CUSTOM_SLUG, brandFromParam, demoQuery } from './demoBrand.ts';
@@ -182,6 +182,7 @@ function TrainerApp({ api, trainerKey: key, version }: { api: Api; trainerKey: s
   useEffect(() => {
     void load();
   }, [load, version]);
+  useLiveRefresh(load);
 
   useEffect(() => {
     const onPop = () => setPath(location.pathname);
