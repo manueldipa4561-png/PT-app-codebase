@@ -20,6 +20,8 @@ Rollback:
 
 Before you start: the trainer paid the first month and signed the terms and the DPA ([GDPR.md](GDPR.md)).
 
+First send the trainer the form at https://puntoduestudio.it/modulo-trainer: brand, sessions, hours, contacts, contract details, logo and cover photo. No account needed. The answers are in Netlify > puntodue-studio > Forms > trainer (the page lives in the puntodue-studio repo).
+
 1. **Look (10 min).** With the trainer, create their brand in the demo panel: name, look, colors, logo. Click **Copia SQL di attivazione**.
 2. **Files (5 min).** Upload their logo and cover photo to the public Storage bucket. Put the `https://` URLs in the JSON's theme.
 3. **Domain decision (5 min).** A subdomain of our app domain, or their own `app.<their-domain>`. Decide now: moving later signs every client out, and they must reinstall.
