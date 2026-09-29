@@ -1,7 +1,7 @@
 // "Scaricare l'app" from the web: it installs on the home screen, no store needed. Chrome and Edge
 // (Android, computer) have their own install prompt; on iPhone it takes two taps in the Share menu.
 import { useState } from 'react';
-import { ArrowSquareOut, Copy, DeviceMobile, DotsThree, DotsThreeVertical, Export, PlusSquare, type Icon } from '@phosphor-icons/react';
+import { ArrowDown, ArrowSquareOut, Copy, DeviceMobile, DotsThree, DotsThreeVertical, Export, PlusSquare, type Icon } from '@phosphor-icons/react';
 import { errorText, useI18n, type Key } from './i18n.ts';
 import { Button, Sheet, useApp } from './ui.tsx';
 
@@ -24,13 +24,26 @@ const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent;
 const ios = /iphone|ipad|ipod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
 // Apps that open links inside themselves (Instagram, Facebook, TikTok...) cannot install anything.
 const inApp = /Instagram|FBAN|FBAV|FB_IAB|Line\/|musical_ly|BytedanceWebview|LinkedInApp|Snapchat/i.test(ua);
+// Safari on iPhone gets an arrow pointing at its toolbar: Share sits in the middle of it, but from
+// Safari 26 it hides behind the ··· button at the bottom right. Other iOS browsers get the steps only.
+const iphoneSafari = !inApp && /iphone|ipod/i.test(ua) && /Safari\//.test(ua) && !/CriOS|FxiOS|EdgiOS|OPT\/|GSA\/|Ddg\//.test(ua);
+const safari26 = Number(/Version\/(\d+)/.exec(ua)?.[1]) >= 26;
+const kind = inApp ? 'inApp' : iphoneSafari ? (safari26 ? 'safari26' : 'safari') : ios ? 'ios' : 'menu';
 
 export const isInstalled = () => matchMedia('(display-mode: standalone)').matches || (navigator as { standalone?: boolean }).standalone === true;
 
-const STEPS: Record<'inApp' | 'ios' | 'menu', [Icon, Key][]> = {
+const STEPS: Record<typeof kind, [Icon, Key][]> = {
   inApp: [
     [DotsThree, 'install.inApp1'],
     [ArrowSquareOut, 'install.inApp2'],
+  ],
+  safari: [
+    [Export, 'install.safari1'],
+    [PlusSquare, 'install.ios2'],
+  ],
+  safari26: [
+    [DotsThree, 'install.safari26'],
+    [PlusSquare, 'install.ios2'],
   ],
   ios: [
     [Export, 'install.ios1'],
@@ -77,20 +90,20 @@ export function InstallApp({ beforeSignIn = false }: { beforeSignIn?: boolean })
       </Button>
       <Sheet open={open} onClose={() => setOpen(false)} title={t('install.title')}>
         <ol className="steps">
-          {STEPS[inApp ? 'inApp' : ios ? 'ios' : 'menu'].map(([StepIcon, key]) => (
+          {STEPS[kind].map(([StepIcon, key]) => (
             <li key={key}>
               <StepIcon size={24} aria-hidden />
               <span>{t(key)}</span>
             </li>
           ))}
         </ol>
-        <p className="muted">{t(inApp ? 'install.inAppNote' : 'install.after')}</p>
-        {ios && beforeSignIn && !inApp && <p className="muted">{t('install.iosFirst')}</p>}
+        <p className="muted">{t(inApp ? 'install.inAppNote' : !ios ? 'install.after' : beforeSignIn ? 'install.iosFirst' : 'install.iosAgain')}</p>
         {inApp && (
           <Button variant="secondary" block icon={<Copy size={18} aria-hidden />} onClick={copyLink}>
             {t('install.copy')}
           </Button>
         )}
+        {iphoneSafari && <ArrowDown className={safari26 ? 'install-arrow install-arrow-right' : 'install-arrow'} size={36} weight="bold" aria-hidden />}
       </Sheet>
     </>
   );
