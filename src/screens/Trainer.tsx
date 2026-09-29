@@ -4,7 +4,7 @@ import { ArrowUUpLeft, CalendarBlank, DownloadSimple, MagnifyingGlass, Trash, Us
 import { AppError, PAY_METHODS, balanceOf, localParts, monthStats, zonedToUtc, type Booking, type Client, type PayMethod } from '../domain.ts';
 import type { TrainerData } from '../api.ts';
 import { counted, errorText, fmtDay, fmtMoney, fmtTime, useI18n, type Key } from '../i18n.ts';
-import { Button, Empty, ErrorState, Field, Sheet, Skeleton, haptic, useApp } from '../ui.tsx';
+import { Button, Empty, ErrorState, Field, Sheet, Skeleton, haptic, useApp, useLiveRefresh } from '../ui.tsx';
 
 type Tab = 'today' | 'clients' | 'invites' | 'month' | 'blocks';
 const codeOf = (e: unknown) => (e instanceof AppError ? e.code : 'generic');
@@ -43,6 +43,8 @@ export function Trainer() {
   useEffect(() => {
     void load();
   }, [load]);
+  // In the background a failed reload keeps what is on screen, instead of an error page.
+  useLiveRefresh(() => api.trainerData(trainer.id).then(setData, () => {}));
 
   const act = useCallback(
     async (fn: () => Promise<unknown>, ok?: string) => {

@@ -36,6 +36,26 @@ export function haptic(ms = 12) {
   if (typeof navigator !== 'undefined' && 'vibrate' in navigator && !matchMedia('(prefers-reduced-motion: reduce)').matches) navigator.vibrate(ms);
 }
 
+/**
+ * Picks up changes made on another device (the trainer marks a pack paid, a client books):
+ * reloads when the app comes back to the foreground, and every 20 s while it is on screen.
+ */
+export function useLiveRefresh(reload: () => unknown) {
+  const latest = useRef(reload);
+  latest.current = reload;
+  useEffect(() => {
+    const run = () => {
+      if (document.visibilityState === 'visible') void latest.current();
+    };
+    const timer = window.setInterval(run, 20_000);
+    document.addEventListener('visibilitychange', run);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', run);
+    };
+  }, []);
+}
+
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
   size?: 'md' | 'lg';
