@@ -104,7 +104,7 @@ List them in the DPA, and tell the trainers before adding a new one.
 |---|---|---|---|
 | Supabase | database, login, file storage | everything above | the project's EU region |
 | Netlify | hosting and the edge function | IP addresses in request logs | US company, global network |
-| Brevo | sending the login code emails | email address | EU (France) |
+| Resend (Plus Five Five, Inc.) | sending the login code emails | email address | EU region (Ireland); US company, standard contractual clauses |
 | Stripe (shop, pro plan) | payments through the trainer's own Payment Links | payment details, typed on Stripe's page | the trainer's own Stripe account |
 
 Stripe is the trainer's provider, not ours: payments never pass through our app. Name it in the trainer's privacy page anyway.
