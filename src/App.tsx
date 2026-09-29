@@ -299,13 +299,14 @@ function TrainerApp({ api, trainerKey: key, version }: { api: Api; trainerKey: s
   let screen: ReactNode;
   let screenKey = path;
   let tabs = false;
-  if (!me.client && !(me.isOwner && path.startsWith('/admin'))) {
+  if (me.isOwner && (path.startsWith('/admin') || !me.client)) {
+    // The trainer's own app opens on the panel; a trainer who is also a client gets there from Profile.
+    screen = <Trainer />;
+    screenKey = 'admin';
+  } else if (!me.client) {
     screen = <Join referralCode={invite} />;
     // a new trainer or invite starts the form over: nothing typed is sent to the wrong one
     screenKey = `join:${trainer.id}:${invite ?? ''}`;
-  } else if (path.startsWith('/admin') && me.isOwner) {
-    screen = <Trainer />;
-    screenKey = 'admin';
   } else {
     tabs = true;
     if (path.startsWith('/book')) screen = <Book />;
