@@ -13,6 +13,7 @@ import {
   type BookingStatus,
   type Candidate,
   type Client,
+  type DayVisits,
   type LedgerEntry,
   type PackPurchase,
   type PayMethod,
@@ -47,9 +48,10 @@ export interface DemoDB {
   ledger: LedgerEntry[];
   referrals: Referral[];
   products: Product[];
+  visits: DayVisits[];
 }
 
-export const DEMO_VERSION = 5;
+export const DEMO_VERSION = 6;
 export const DEMO_USER = 'demo-user';
 export const DEMO_EMAIL = 'sara.conti@example.com';
 export const DEMO_PAYMENT_URL = 'https://buy.stripe.com/demo';
@@ -274,6 +276,7 @@ export function emptyDB(now: number): DemoDB {
     ledger: [],
     referrals: [],
     products: [],
+    visits: [],
   };
 }
 
@@ -297,6 +300,14 @@ function seedTrainer(db: DemoDB, spec: SeedSpec, now: number): void {
   const id = (prefix: string) => `${prefix}-${t.slug}-${++n}`;
   const iso = (ms: number) => new Date(ms).toISOString();
   const pick = <T,>(xs: readonly T[]) => xs[Math.floor(rand() * xs.length)];
+
+  // About 60 days of app opens, busier early in the week. Its own generator: the rest of the seed stays as it was.
+  const visitRand = mulberry32(spec.seed ^ 0x5eed);
+  for (let d = 0; d < 60; d++) {
+    const day = addDays(today, -d);
+    const opens = Math.round((isoWeekday(day) <= 3 ? 16 : 10) + visitRand() * 8);
+    db.visits.push({ trainerId: t.id, day, opens, installed: Math.round(opens * (0.5 + visitRand() * 0.2)) });
+  }
 
   for (const off of spec.timeOff) {
     let date = addDays(today, 1);

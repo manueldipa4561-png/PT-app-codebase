@@ -155,6 +155,11 @@ test('monthStats counts this month in the trainer time zone', () => {
         { id: 'p1', trainerId: 'T', clientId: 'c1', credits: 10, priceCents: 45000, method: 'cash', paidAt: '2026-10-01T09:00:00.000Z', note: null, opId: 'o1', voidedAt: null },
         { id: 'p2', trainerId: 'T', clientId: 'c2', credits: 10, priceCents: 45000, method: 'cash', paidAt: '2026-10-01T09:00:00.000Z', note: null, opId: 'o2', voidedAt: '2026-10-02T00:00:00.000Z' },
       ],
+      visits: [
+        { trainerId: 'T', day: '2026-09-30', opens: 50, installed: 50 }, // last month: not counted
+        { trainerId: 'T', day: '2026-10-01', opens: 12, installed: 6 },
+        { trainerId: 'T', day: '2026-10-20', opens: 8, installed: 6 },
+      ],
     },
     now,
     TZ,
@@ -165,6 +170,8 @@ test('monthStats counts this month in the trainer time zone', () => {
   assert.equal(stats.selfBookedShare, 3 / 4);
   assert.equal(stats.packsSold, 1);
   assert.equal(stats.packRevenueCents, 45000);
+  assert.equal(stats.opens, 20);
+  assert.equal(stats.installedShare, 12 / 20);
 });
 
 test('icsEvent writes UTC times, escapes text and folds long lines', () => {

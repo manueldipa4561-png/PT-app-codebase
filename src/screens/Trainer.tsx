@@ -286,6 +286,8 @@ function Month({ data }: { data: TrainerData }) {
   const money = useCallback((v: number) => fmtMoney(Math.round(v), trainer.currency, lang, true), [trainer.currency, lang]);
   const pct = useCallback((v: number) => `${Math.round(v)}%`, []);
   const tiles: { label: Key; value: number; format(v: number): string }[] = [
+    { label: 'tr.m.opens', value: s.opens, format: whole },
+    { label: 'tr.m.installed', value: Math.round((s.installedShare ?? 0) * 100), format: pct },
     { label: 'tr.m.sessions', value: s.sessionsDone, format: whole },
     { label: 'tr.m.upcoming', value: s.upcoming, format: whole },
     { label: 'tr.m.self', value: Math.round((s.selfBookedShare ?? 0) * 100), format: pct },

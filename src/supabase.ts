@@ -10,6 +10,7 @@ import {
   type Booking,
   type BookingStatus,
   type Client,
+  type DayVisits,
   type LedgerEntry,
   type LedgerReason,
   type Locale,
@@ -182,6 +183,13 @@ const toTimeOff = (r: Row): TimeOff => ({
   note: strOrNull(r.note),
 });
 
+const toVisits = (r: Row): DayVisits => ({
+  trainerId: str(r.trainer_id),
+  day: str(r.day).slice(0, 10),
+  opens: num(r.opens),
+  installed: num(r.installed),
+});
+
 const toSlot = (r: Row): Slot => ({
   startsAt: iso(r.starts_at),
   endsAt: iso(r.ends_at),
@@ -296,6 +304,9 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       );
       return rows.map(toProduct);
     },
+    async logVisit(trainerId, installed) {
+      await run('logVisit', sb.rpc('log_visit', { p_trainer: trainerId, p_installed: installed }));
+    },
 
     async sendCode(email) {
       const e = email.trim();
@@ -379,7 +390,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
           const q = sb.from(table).select('*').eq('trainer_id', trainerId);
           return (table === 'bookings' ? q.gte('starts_at', since) : q).order(order).order('id').range(from, to);
         });
-      const [owner, clients, bookings, ledger, referrals, packs, timeOff] = await Promise.all([
+      const [owner, clients, bookings, ledger, referrals, packs, timeOff, visits] = await Promise.all([
         owns('trainerData', trainerId),
         of('clients', 'created_at'),
         of('bookings', 'starts_at'),
@@ -387,6 +398,10 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         of('referrals', 'created_at'),
         of('pack_purchases', 'paid_at'),
         of('time_off', 'starts_at'),
+        // one row per day, keyed by (trainer_id, day): no id to order by
+        all('trainerData', (from, to) =>
+          sb.from('app_visits').select('*').eq('trainer_id', trainerId).gte('day', since.slice(0, 10)).order('day').range(from, to),
+        ),
       ]);
       // As in the demo. RLS alone would hand a client their own rows instead.
       if (!owner) throw new AppError('NOT_ALLOWED');
@@ -397,6 +412,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         referrals: referrals.map(toReferral),
         packs: packs.map(toPack),
         timeOff: timeOff.map(toTimeOff),
+        visits: visits.map(toVisits),
       };
     },
     async addClient(trainerId, input) {

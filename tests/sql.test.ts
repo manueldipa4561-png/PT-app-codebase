@@ -3,12 +3,17 @@
 // also run the suite against a disposable hosted Supabase project (see README).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { PGlite } from '@electric-sql/pglite';
 import { scenarios, type Harness, type Result } from './scenarios.ts';
 
-const MIGRATION = readFileSync(new URL('../supabase/migrations/20260928000000_init.sql', import.meta.url), 'utf8');
+// Every migration, in order, as `supabase db push` would apply them.
+const MIGRATIONS_DIR = new URL('../supabase/migrations/', import.meta.url);
+const MIGRATIONS = readdirSync(MIGRATIONS_DIR)
+  .filter((f) => f.endsWith('.sql'))
+  .sort()
+  .map((f) => readFileSync(new URL(f, MIGRATIONS_DIR), 'utf8'));
 
 // The minimum of Supabase that the migration expects: an auth schema with users and
 // auth.uid(), plus the anon and authenticated roles.
@@ -32,7 +37,7 @@ const toIso = (v: unknown) => new Date(v as string).toISOString();
 async function database() {
   const db = new PGlite();
   await db.exec(SUPABASE_STUB);
-  await db.exec(MIGRATION);
+  for (const sql of MIGRATIONS) await db.exec(sql);
   return db;
 }
 
@@ -338,4 +343,33 @@ test("sql: deleting a client account never deletes a trainer's own login", async
   assert.equal(rows.length, 1);
   const { rows: [t] } = await db.query<{ o: string }>(`select owner_user_id as o from public.trainers where id = $1`, [mine]);
   assert.equal(t.o, owner);
+});
+
+test('sql: app opens are counted anonymously and only the owner reads them', async () => {
+  const db = await shared;
+  const h = sqlHarness(db);
+  const t = await h.trainer();
+  const owner = h.ownerOf(t);
+  const client = await h.user('visits@example.com');
+  try {
+    await db.exec('set role anon'); // signed out, as on the join screen
+    await db.query(`select public.log_visit($1, true)`, [t]);
+    await db.query(`select public.log_visit($1, true)`, [t]);
+    await db.query(`select public.log_visit($1, false)`, [t]);
+    await db.query(`select public.log_visit(gen_random_uuid(), true)`); // unknown trainer: counts nothing, no error
+    await assert.rejects(db.query('select * from public.app_visits'));
+    await assert.rejects(db.query(`insert into public.app_visits (trainer_id, day, opens) values ($1, current_date, 99)`, [t]));
+
+    await db.exec('set role authenticated');
+    await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [client]);
+    assert.equal((await db.query('select * from public.app_visits')).rows.length, 0);
+    await assert.rejects(db.query(`update public.app_visits set opens = 99`));
+
+    await db.query(`select set_config('request.jwt.claim.sub', $1, false)`, [owner]);
+    const { rows } = await db.query<{ opens: number; installed: number }>('select opens, installed from public.app_visits');
+    assert.deepEqual(rows, [{ opens: 3, installed: 2 }]);
+  } finally {
+    await db.exec('reset role');
+    await db.query(`select set_config('request.jwt.claim.sub', '', false)`);
+  }
 });

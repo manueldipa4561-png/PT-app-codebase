@@ -4,6 +4,7 @@
 import type {
   Booking,
   Client,
+  DayVisits,
   LedgerEntry,
   PackPurchase,
   PayMethod,
@@ -38,6 +39,7 @@ export interface TrainerData {
   referrals: Referral[];
   packs: PackPurchase[];
   timeOff: TimeOff[];
+  visits: DayVisits[];
 }
 
 export interface JoinInput {
@@ -60,6 +62,8 @@ export interface Api {
   getTrainer(key: string): Promise<TrainerPublic>;
   sessionTypes(trainerId: string): Promise<SessionType[]>;
   products(trainerId: string): Promise<Product[]>;
+  /** One anonymous app open for the trainer's monthly numbers. */
+  logVisit(trainerId: string, installed: boolean): Promise<void>;
 
   sendCode(email: string): Promise<void>;
   verifyCode(email: string, code: string): Promise<void>;

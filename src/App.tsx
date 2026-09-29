@@ -9,6 +9,7 @@ import { AppContext, ErrorState, Skeleton, Toasts, useApp, useLiveRefresh, useTo
 import type { DemoApi } from './demo.ts';
 import { DemoPanel, saveCustomBrand } from './DemoPanel.tsx';
 import { CUSTOM_SLUG, brandFromParam, demoQuery } from './demoBrand.ts';
+import { isInstalled } from './install.tsx';
 import { Home } from './screens/Home.tsx';
 import { Book } from './screens/Book.tsx';
 import { Agenda } from './screens/Agenda.tsx';
@@ -213,6 +214,23 @@ function TrainerApp({ api, trainerKey: key, version }: { api: Api; trainerKey: s
     void load();
   }, [load, version]);
   useLiveRefresh(load);
+
+  // One anonymous app open for the trainer's monthly numbers: at start, and on coming back after
+  // 30 minutes away. The trainer's own opens do not count.
+  const trainerId = trainer?.id;
+  const owner = me?.isOwner;
+  useEffect(() => {
+    if (!trainerId || owner !== false) return;
+    const log = () => void api.logVisit(trainerId, isInstalled()).catch(() => {});
+    log();
+    let hiddenAt = 0;
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') hiddenAt = Date.now();
+      else if (hiddenAt && Date.now() - hiddenAt > 30 * 60_000) log();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [api, trainerId, owner]);
 
   useEffect(() => {
     const onPop = () => setPath(location.pathname);

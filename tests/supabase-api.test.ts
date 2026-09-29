@@ -366,6 +366,17 @@ test('adapter: join, with the terms and an invite code; myReferrals', async () =
   Object.assign(clients, { anna: a.id, bruno: b.id, dario: d.id });
 });
 
+test("adapter: app opens, counted signed out, reach the owner's month numbers", async () => {
+  const w = await world;
+  const anon = createSupabaseApi(w.env.fake.url, w.env.fake.anonKey);
+  await anon.logVisit(w.t1, true);
+  await anon.logVisit(w.t1, false);
+  const { visits } = await people.marta.api.trainerData(w.t1);
+  assert.equal(visits.length, 1);
+  assert.match(visits[0].day, /^\d{4}-\d{2}-\d{2}$/);
+  assert.deepEqual({ ...visits[0], day: '' }, { trainerId: w.t1, day: '', opens: 2, installed: 1 });
+});
+
 test('adapter: trainerData and addClient belong to the owner', async () => {
   const w = await world;
   const { marta, anna, nico } = people;
