@@ -4,6 +4,7 @@ import { ArrowUUpLeft, CalendarBlank, DownloadSimple, MagnifyingGlass, Trash, Us
 import { AppError, PAY_METHODS, balanceOf, localParts, monthStats, zonedToUtc, type Booking, type Client, type PayMethod } from '../domain.ts';
 import type { TrainerData } from '../api.ts';
 import { counted, errorText, fmtDay, fmtMoney, fmtTime, useI18n, type Key } from '../i18n.ts';
+import { InstallApp, isInstalled } from '../install.tsx';
 import { Button, Empty, ErrorState, Field, Sheet, Skeleton, haptic, useApp, useLiveRefresh } from '../ui.tsx';
 
 type Tab = 'today' | 'clients' | 'invites' | 'month' | 'blocks';
@@ -99,6 +100,11 @@ export function Trainer() {
         <span className="spacer" />
         <Button variant="secondary" onClick={exportCsv} icon={<DownloadSimple size={18} aria-hidden />} aria-label={t('tr.export')} />
       </div>
+      {!isInstalled() && (
+        <div className="pad" style={{ marginTop: 16 }}>
+          <InstallApp />
+        </div>
+      )}
       <div className="tabs-scroll" role="group" aria-label={t('tr.title')}>
         {tabs.map((x) => (
           <button key={x.id} type="button" className="chip" aria-pressed={tab === x.id} onClick={() => setTab(x.id)}>

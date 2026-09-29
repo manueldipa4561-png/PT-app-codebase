@@ -292,6 +292,10 @@ img { display: block; max-width: 100%; }
 .steps { list-style: none; margin: 4px 0 16px; padding: 0; display: grid; gap: 14px; }
 .steps li { display: grid; grid-template-columns: 24px 1fr; gap: 12px; align-items: center; }
 .steps svg { color: var(--brand-text); }
+/* Points below the page, at Safari's toolbar: Share in the middle, or ··· at the right from Safari 26. */
+.install-arrow { display: block; margin: 4px auto 0; color: var(--brand-text); animation: nudge 1.1s ease-in-out infinite; }
+.install-arrow-right { margin-right: 0; }
+@keyframes nudge { 50% { transform: translateY(8px); } }
 .code-input { letter-spacing: 0.5em; text-align: center; font-size: 24px; font-variant-numeric: tabular-nums; }
 
 /* ── states ────────────────────────────────────────────────────────────────── */
