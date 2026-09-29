@@ -371,6 +371,14 @@ export function balanceOf(ledger: ReadonlyArray<Pick<LedgerEntry, 'clientId' | '
 
 // ── trainer "this month" ─────────────────────────────────────────────────────
 
+/** Anonymous app opens on one day of the trainer's calendar (no user, no IP, no cookie). */
+export interface DayVisits {
+  trainerId: string;
+  day: string; // YYYY-MM-DD, trainer's time zone
+  opens: number;
+  installed: number; // of which from the home-screen app
+}
+
 export interface MonthStats {
   sessionsDone: number;
   upcoming: number;
@@ -381,10 +389,12 @@ export interface MonthStats {
   noShows: number;
   packsSold: number;
   packRevenueCents: number;
+  opens: number;
+  installedShare: number | null; // share of opens from the home-screen app
 }
 
 export function monthStats(
-  d: { bookings: Booking[]; clients: Client[]; referrals: Referral[]; packs: PackPurchase[] },
+  d: { bookings: Booking[]; clients: Client[]; referrals: Referral[]; packs: PackPurchase[]; visits: DayVisits[] },
   now: number,
   tz: string,
 ): MonthStats {
@@ -393,7 +403,11 @@ export function monthStats(
   const bookings = d.bookings.filter((b) => inMonth(b.startsAt));
   const live = bookings.filter((b) => b.status !== 'cancelled');
   const packs = d.packs.filter((p) => !p.voidedAt && inMonth(p.paidAt));
+  const visits = d.visits.filter((v) => v.day.slice(0, 7) === month);
+  const opens = visits.reduce((s, v) => s + v.opens, 0);
   return {
+    opens,
+    installedShare: opens ? visits.reduce((s, v) => s + v.installed, 0) / opens : null,
     sessionsDone: bookings.filter((b) => b.status === 'attended').length,
     upcoming: bookings.filter((b) => b.status === 'booked' && Date.parse(b.startsAt) > now).length,
     selfBookedShare: live.length ? live.filter((b) => b.bookedBy === 'client').length / live.length : null,

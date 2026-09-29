@@ -231,6 +231,7 @@ export function createDemoApi(opts: DemoOptions = {}): DemoApi {
         })),
       );
       db.products.push(...own(db.products).map((x) => ({ ...x, id: id(x.id)!, trainerId: t.id })));
+      db.visits.push(...own(db.visits).map((x) => ({ ...x, trainerId: t.id })));
       save();
     },
 
@@ -248,6 +249,16 @@ export function createDemoApi(opts: DemoOptions = {}): DemoApi {
     async products(trainerId) {
       await wait();
       return db.products.filter((p) => p.trainerId === trainerId && p.active).sort((a, b) => a.sort - b.sort);
+    },
+    async logVisit(trainerId, installed) {
+      const t = db.trainers.find((x) => x.id === trainerId);
+      if (!t) return; // like the SQL: an unknown trainer counts nothing
+      const day = localParts(clock(), t.timezone).date;
+      let v = db.visits.find((x) => x.trainerId === t.id && x.day === day);
+      if (!v) db.visits.push((v = { trainerId: t.id, day, opens: 0, installed: 0 }));
+      v.opens += 1;
+      if (installed) v.installed += 1;
+      save();
     },
 
     async sendCode(email) {
@@ -431,6 +442,7 @@ export function createDemoApi(opts: DemoOptions = {}): DemoApi {
         referrals: of(db.referrals),
         packs: of(db.packs),
         timeOff: of(db.timeOff),
+        visits: of(db.visits),
       };
     },
     async addClient(trainerId, input) {

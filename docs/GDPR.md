@@ -23,6 +23,7 @@ How the trainer apps handle personal data. This is Punto Due's working summary, 
 | Blocked time, with an optional note | `time_off` | the trainer's calendar |
 | Login: email, sign-up and sign-in times | `auth.users` (Supabase Auth) | the email code login |
 | Trainer: name, contacts, look, booking rules | `trainers` | the app itself |
+| App opens per day: a count, and how many came from the installed app. No user, IP or device | `app_visits` | the trainer's monthly numbers |
 
 A client who invited a friend sees only the friend's first name and whether the reward was given.
 
@@ -123,6 +124,7 @@ A breach is any leak, loss of, or unauthorized access to personal data: a wrong 
 
 - **The fonts are self-hosted.** They come from the `@fontsource` packages and ship inside the build, so the app makes no requests to Google Fonts. In January 2022 a Munich court (LG München I) ruled against a site that loaded Google Fonts from Google's servers: it sent the visitor's IP address to Google without consent.
 - **No analytics and no tracking cookies.** The app stores only what it technically needs in the browser (the login session, the chosen language). So **no cookie banner is needed, as long as this stays true.** Adding analytics or a third-party embed means revisiting this first.
+- **App opens are counted without tracking.** Each open adds 1 to a daily counter per trainer (`app_visits`, through `log_visit`): nothing is stored in the browser, and no user, IP or device is recorded, so nobody can be followed across visits. That keeps it outside the cookie rules. Keep it that way: a visitor id, even a hashed one, would bring the banner back.
 - **Images.** Real trainers' logos and covers live in our Supabase Storage. Never hotlink them from another site: that sends each client's IP address there. (The demo uses Unsplash photos. That is the demo only.)
 
 ## Referral rules and DPR 430/2001
