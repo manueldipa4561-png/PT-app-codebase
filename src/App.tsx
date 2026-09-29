@@ -84,6 +84,36 @@ function storedLang(): Locale | null {
   }
 }
 
+const ENTRY_SCRIPT = /<script[^>]*type="module"[^>]*src="([^"]+)"/;
+
+/**
+ * Turns true once a newer version is deployed than the one running (production only). Checked when
+ * the app comes back to the foreground and every 5 minutes; the next change of screen loads it.
+ */
+function useOutdated() {
+  const outdated = useRef(false);
+  useEffect(() => {
+    const running = document.querySelector('script[type="module"][src]')?.getAttribute('src');
+    if (!import.meta.env.PROD || !running) return;
+    const check = async () => {
+      if (outdated.current || document.visibilityState !== 'visible') return;
+      try {
+        const latest = ENTRY_SCRIPT.exec(await (await fetch('/', { cache: 'no-store' })).text())?.[1];
+        outdated.current = !!latest && latest !== running;
+      } catch {
+        /* offline: the next check tries again */
+      }
+    };
+    const timer = window.setInterval(check, 5 * 60_000);
+    document.addEventListener('visibilitychange', check);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', check);
+    };
+  }, []);
+  return outdated;
+}
+
 function useSystemDark(): boolean {
   const query = '(prefers-color-scheme: dark)';
   const [dark, setDark] = useState(() => matchMedia(query).matches);
@@ -202,13 +232,22 @@ function TrainerApp({ api, trainerKey: key, version }: { api: Api; trainerKey: s
     return () => window.clearTimeout(id);
   }, [trainer, morph]);
 
-  const navigate = useCallback((to: string) => {
-    const url = new URL(to, location.origin);
-    // the demo's ?t= and ?brand= follow every screen, so a link copied from any page still opens this brand
-    if (!url.search) url.search = location.search;
-    history.pushState(null, '', url.pathname + url.search);
-    setPath(url.pathname);
-  }, []);
+  const outdated = useOutdated();
+  const navigate = useCallback(
+    (to: string) => {
+      const url = new URL(to, location.origin);
+      // the demo's ?t= and ?brand= follow every screen, so a link copied from any page still opens this brand
+      if (!url.search) url.search = location.search;
+      // A newer version is out: this change of screen loads it (moving between screens loses nothing).
+      if (outdated.current) {
+        location.assign(url.pathname + url.search);
+        return;
+      }
+      history.pushState(null, '', url.pathname + url.search);
+      setPath(url.pathname);
+    },
+    [outdated],
+  );
 
   const setLang = useCallback((l: Locale) => {
     setLangState(l);
