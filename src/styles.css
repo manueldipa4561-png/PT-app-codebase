@@ -58,7 +58,7 @@ img { display: block; max-width: 100%; }
    sticky offsets inside the scroller's padding, which would lift the sticky booking button too. */
 .screen::after { content: ''; display: block; height: calc(104px + env(safe-area-inset-bottom)); }
 .pad { padding: 0 16px; }
-.stack { display: grid; gap: 12px; }
+.stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; } /* minmax: a long name must not widen the column past the screen */
 .section { margin-top: 28px; }
 .section-title { margin: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--muted); }
 .muted { color: var(--muted); }
@@ -173,6 +173,8 @@ img { display: block; max-width: 100%; }
 .ring-fill { stroke: var(--brand); }
 .ring-num { position: relative; font-size: 44px; font-style: normal; }
 .app[data-template='luxe'] .ring-num { text-transform: none; }
+/* A name stays a name: the boutique look lowers its headings, never the trainer's own name. */
+.app[data-template='luxe'] .hero-name, .app[data-template='luxe'] .join-title { text-transform: none; }
 
 /* ── booking flow ──────────────────────────────────────────────────────────── */
 .types { display: grid; gap: 10px; }
@@ -216,7 +218,7 @@ img { display: block; max-width: 100%; }
 .success p { margin: 0 0 24px; color: var(--muted); }
 
 /* ── lists ─────────────────────────────────────────────────────────────────── */
-.list { display: grid; gap: 8px; }
+.list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .item { display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: var(--surface); border-radius: var(--r-card); border: 1px solid var(--line); }
 .app[data-template='luxe'] .item { border-radius: 20px; }
 .item-date { min-width: 48px; flex: none; text-align: center; }
@@ -235,7 +237,7 @@ img { display: block; max-width: 100%; }
 .app[data-template='energy'] .avatar { border-radius: 6px; }
 .follow-title { display: flex; align-items: center; gap: 8px; }
 .follow-count { height: 20px; padding: 0 8px; }
-.follow-lead { margin-right: 8px; font-weight: 800; color: var(--brand-text); }
+.follow-lead { margin-right: 2px; font-weight: 800; color: var(--brand-text); }
 .follow-send { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border-radius: 999px; font-size: 14px; font-weight: 700; background: var(--brand); color: var(--on-brand); transition: transform 0.15s, background 0.2s; }
 .follow-send:active { transform: scale(0.96); }
 .follow-send.is-done { background: var(--surface-2); color: var(--muted); }

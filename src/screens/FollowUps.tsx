@@ -1,7 +1,7 @@
 // "Da fare" in the trainer's Today tab: the people to remind in the next 48 hours (late cancels and no-shows cost
 // the most), the packs about to end, and the clients who went quiet. One tap opens WhatsApp with the message
 // already written for that person; the row then shows "Scritto" so nobody is written to twice.
-import { useCallback, useState } from 'react';
+import { useCallback, useState, type ReactNode } from 'react';
 import { ArrowsClockwise, Bell, Check, CheckCircle, Copy, Hourglass, WhatsappLogo } from '@phosphor-icons/react';
 import type { TrainerData } from '../api.ts';
 import type { Client } from '../domain.ts';
@@ -43,16 +43,14 @@ function useWritten(trainerId: string) {
 
 interface RowProps {
   client: Client;
-  sub: string;
+  sub: ReactNode;
   done: boolean;
-  /** Short word after the name, like the time of the session. */
-  lead?: string;
   label: string;
   onSend(): void;
   noPhone: boolean;
 }
 
-function FollowRow({ client, sub, done, lead, label, onSend, noPhone }: RowProps) {
+function FollowRow({ client, sub, done, label, onSend, noPhone }: RowProps) {
   const { t } = useI18n();
   return (
     <div className={`item follow${done ? ' follow-done' : ''}`}>
@@ -60,10 +58,7 @@ function FollowRow({ client, sub, done, lead, label, onSend, noPhone }: RowProps
         {initials(client.name)}
       </span>
       <div className="item-main">
-        <div className="item-title">
-          {lead && <span className="follow-lead tabular">{lead}</span>}
-          {client.name}
-        </div>
+        <div className="item-title">{client.name}</div>
         <div className="item-sub">{sub}</div>
       </div>
       <button className={`follow-send${done ? ' is-done' : ''}`} onClick={onSend} aria-label={`${label}: ${client.name}`}>
@@ -137,8 +132,12 @@ export function FollowUps({ data }: { data: TrainerData }) {
                 <FollowRow
                   key={id}
                   client={client}
-                  lead={time}
-                  sub={`${day} · ${typeName(booking.sessionTypeId)}${booking.location ? `, ${booking.location}` : ''}`}
+                  sub={
+                    <>
+                      <b className="follow-lead tabular">{time}</b> {day} · {typeName(booking.sessionTypeId)}
+                      {booking.location ? `, ${booking.location}` : ''}
+                    </>
+                  }
                   done={recent(id, within)}
                   label={t('fu.remind')}
                   noPhone={!waLink(client.phone, 'x')}
