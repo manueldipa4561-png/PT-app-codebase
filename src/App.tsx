@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { AnimatePresence, MotionConfig, motion } from 'motion/react';
 import { CalendarBlank, CalendarPlus, Gift, House, ShoppingBag } from '@phosphor-icons/react';
 import { createApi, DEFAULT_DEMO_TRAINER, DEMO_MODE, trainerKey, type Api, type Me } from './api.ts';
-import { AppError, balanceOf, type Booking, type LedgerEntry, type Locale, type Product, type SessionType, type TrainerPublic } from './domain.ts';
+import { AppError, balanceOf, type Booking, type LedgerEntry, type Locale, type Product, type SessionType, type TrainerPublic, type WaitlistEntry } from './domain.ts';
 import { TEMPLATES, initials, isDark, readableOn, themeVars } from './theme.ts';
 import { I18nContext, errorText, translator, useI18n } from './i18n.ts';
 import { AppContext, ErrorState, Skeleton, Toasts, useApp, useLiveRefresh, useToasts, type AppState } from './ui.tsx';
@@ -180,6 +180,7 @@ function TrainerApp({ api, trainerKey: key, version }: { api: Api; trainerKey: s
   const [me, setMe] = useState<Me | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [ledger, setLedger] = useState<LedgerEntry[]>([]);
+  const [waitlist, setWaitlist] = useState<WaitlistEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [lang, setLangState] = useState<Locale | null>(storedLang);
   const [path, setPath] = useState(() => location.pathname);
@@ -194,7 +195,9 @@ function TrainerApp({ api, trainerKey: key, version }: { api: Api; trainerKey: s
     try {
       const t = await api.getTrainer(key);
       const [ty, pr, m] = await Promise.all([api.sessionTypes(t.id), api.products(t.id), api.me(t.id)]);
-      const [bk, lg] = m.client ? await Promise.all([api.myBookings(t.id), api.myLedger(t.id)]) : [[], []];
+      // the waitlist is an extra: if it cannot be read, booking and the rest of the app still load
+      const noList = (e: unknown): WaitlistEntry[] => (console.warn('waitlist unavailable', e), []);
+      const [bk, lg, wl] = m.client ? await Promise.all([api.myBookings(t.id), api.myLedger(t.id), api.myWaitlist(t.id).catch(noList)]) : [[], [], []];
       if (mine !== latest.current) return;
       setTrainer(t);
       setTypes(ty);
@@ -202,6 +205,7 @@ function TrainerApp({ api, trainerKey: key, version }: { api: Api; trainerKey: s
       setMe(m);
       setBookings(bk);
       setLedger(lg);
+      setWaitlist(wl);
       setError(null);
     } catch (e) {
       if (mine !== latest.current) return;
@@ -290,6 +294,7 @@ function TrainerApp({ api, trainerKey: key, version }: { api: Api; trainerKey: s
             me,
             bookings,
             ledger,
+            waitlist,
             balance: me.client ? balanceOf(ledger, me.client.id) : 0,
             dark,
             refresh: load,
@@ -298,7 +303,7 @@ function TrainerApp({ api, trainerKey: key, version }: { api: Api; trainerKey: s
             toast: show,
           }
         : null,
-    [api, trainer, types, products, me, bookings, ledger, dark, load, path, navigate, show],
+    [api, trainer, types, products, me, bookings, ledger, waitlist, dark, load, path, navigate, show],
   );
 
   if (error && !trainer) {

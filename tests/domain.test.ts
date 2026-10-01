@@ -5,12 +5,15 @@ import {
   balanceOf,
   cancelOutcome,
   freeSlots,
+  fullSlots,
   googleCalendarUrl,
   icsEvent,
   isoWeekday,
   localParts,
   monthStats,
   slotStatus,
+  waitlistEntries,
+  waitlistStatus,
   weeklyRepeats,
   whatsappLink,
   zonedToUtc,
@@ -125,6 +128,64 @@ test('slotStatus names the reason a start cannot be booked', () => {
   assert.equal(slotStatus(base, at('2026-10-05T05:15:00Z')), 'OUTSIDE_HOURS');
   assert.equal(slotStatus(base, at('2026-10-05T10:00:00Z')), 'OUTSIDE_HOURS');
   assert.equal(slotStatus({ ...base, bookings: [booking()] }, at('2026-10-05T05:30:00Z')), 'SLOT_TAKEN');
+});
+
+test('fullSlots: the offered starts with no place left, never the session the client holds', () => {
+  const q = { ...base, bookings: [booking()] };
+  const full = (clientId: string | null, over = {}) => fullSlots({ ...q, ...over }, clientId).map((s) => s.startsAt);
+  assert.deepEqual(full('c2'), ['2026-10-05T05:00:00.000Z', '2026-10-05T05:30:00.000Z']); // 05:30 overlaps the booked hour
+  assert.deepEqual(full('c1'), ['2026-10-05T05:30:00.000Z']);
+  assert.deepEqual(full(null), ['2026-10-05T05:00:00.000Z', '2026-10-05T05:30:00.000Z']);
+  assert.equal(fullSlots({ ...q, bookings: [booking({ status: 'cancelled' })] }, 'c2').length, 0);
+  assert.deepEqual(full('c2', { now: Date.parse('2026-10-05T04:00:00Z') }), []); // inside the minimum notice nothing is offered
+  // a group with a place left is not full at its own start; only the start that overlaps it is
+  assert.deepEqual(fullSlots({ ...q, type: group, bookings: [booking({ sessionTypeId: 't2' })] }, 'c2').map((s) => s.startsAt), ['2026-10-05T05:30:00.000Z']);
+});
+
+test('waitlistStatus: the booking checks, with a taken place instead of a free one', () => {
+  const at = (s: string) => Date.parse(s);
+  const q = { ...base, bookings: [booking()] };
+  assert.equal(waitlistStatus(q, at('2026-10-05T05:00:00Z')), 'ok');
+  assert.equal(waitlistStatus(q, at('2026-10-05T06:00:00Z')), 'SLOT_OPEN');
+  assert.equal(waitlistStatus({ ...q, now: at('2026-10-05T04:00:00Z') }, at('2026-10-05T05:00:00Z')), 'TOO_SOON');
+  assert.equal(waitlistStatus({ ...q, now: at('2026-09-01T00:00:00Z') }, at('2026-10-05T05:00:00Z')), 'TOO_FAR');
+  assert.equal(waitlistStatus(q, at('2026-10-05T05:15:00Z')), 'OUTSIDE_HOURS');
+});
+
+test('waitlistEntries: first come first served, only what still counts, each viewer sees their own share', () => {
+  const FULL = '2026-10-07T16:00:00.000Z'; // no place left
+  const FREE = '2026-10-08T16:00:00.000Z'; // a place has opened
+  const GONE = '2026-10-09T16:00:00.000Z'; // no longer offered
+  const row = (id: string, clientId: string, startsAt: string, createdAt: string) => ({ id, trainerId: 'T', clientId, sessionTypeId: 't1', startsAt, createdAt });
+  const rows = [
+    row('b', 'c2', FULL, '2026-10-02T08:00:00.000Z'),
+    row('a', 'c1', FULL, '2026-10-01T08:00:00.000Z'),
+    row('deleted', 'c4', FULL, '2026-10-03T08:00:00.000Z'), // the client is gone: not in the line
+    row('holder', 'c5', FULL, '2026-10-03T09:00:00.000Z'), // already has the session: not in the line
+    row('c', 'c3', FULL, '2026-10-04T08:00:00.000Z'),
+    row('f', 'c1', FREE, '2026-10-02T08:00:00.000Z'),
+    row('g', 'c2', GONE, '2026-10-02T08:00:00.000Z'),
+    row('over', 'c1', '2026-10-04T10:00:00.000Z', '2026-10-01T08:00:00.000Z'), // started before now
+  ];
+  const ctx = {
+    now: NOW,
+    minNoticeHours: 2,
+    placesAt: (_: string, start: number) => (start === Date.parse(FREE) ? 1 : start === Date.parse(GONE) ? null : 0),
+    holds: (clientId: string, start: number) => clientId === 'c5' && start === Date.parse(FULL),
+    alive: (clientId: string) => clientId !== 'c4',
+  };
+  const line = (viewer: { owner: boolean; clientId: string | null }, c = ctx) => waitlistEntries(rows, c, viewer).map((e) => `${e.id}:${e.position}${e.open ? '+' : ''}`);
+  assert.deepEqual(line({ owner: true, clientId: null }), ['a:1', 'b:2', 'c:3', 'f:1+']);
+  assert.deepEqual(line({ owner: false, clientId: 'c1' }), ['a:1', 'f:1+']);
+  assert.deepEqual(line({ owner: false, clientId: 'c2' }), ['b:2']);
+  assert.deepEqual(line({ owner: false, clientId: null }), []);
+  // half an hour before the session the place is the trainer's to give: a client can no longer book it
+  const late = { ...ctx, now: Date.parse(FREE) - 30 * 60_000 };
+  assert.deepEqual(line({ owner: false, clientId: 'c1' }, late), ['f:1']);
+  assert.deepEqual(line({ owner: true, clientId: null }, late), ['f:1+']);
+  // a tie in arrival time keeps the order the rows came in
+  const same = [row('x', 'c1', FULL, '2026-10-01T08:00:00.000Z'), row('y', 'c2', FULL, '2026-10-01T08:00:00.000Z')];
+  assert.deepEqual(waitlistEntries(same, ctx, { owner: true, clientId: null }).map((e) => `${e.id}:${e.position}`), ['x:1', 'y:2']);
 });
 
 test('cancelOutcome: refund outside the window, late cancel inside it, nothing after the start', () => {

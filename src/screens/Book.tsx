@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CalendarPlus, CalendarX, ChatCircleText, Check } from '@phosphor-icons/react';
-import { AppError, addDays, firstName, localParts, weeklyRepeats, whatsappLink, type Booking, type Slot } from '../domain.ts';
+import { AppError, addDays, firstName, localParts, weeklyRepeats, whatsappLink, type Booking, type Slot, type WaitlistEntry } from '../domain.ts';
 import { counted, errorText, fmtDay, fmtLongDay, fmtTime, useI18n } from '../i18n.ts';
 import { Button, Empty, ErrorState, Segmented, Sheet, Skeleton, haptic, useApp } from '../ui.tsx';
 import { calendarLinks } from './Home.tsx';
@@ -16,6 +16,9 @@ export function startMove(b: Booking) {
   moving = b;
 }
 
+/** A time on the grid: free to book, or full and open to a waitlist. */
+type Offered = Slot & { full: boolean };
+
 /** What booking a standing weekly slot gave: the sessions booked, and the weeks that could not be. */
 interface Series {
   booked: Booking[];
@@ -23,7 +26,7 @@ interface Series {
 }
 
 export function Book() {
-  const { api, trainer, types, balance, refresh, toast } = useApp();
+  const { api, trainer, types, balance, waitlist, refresh, toast } = useApp();
   const { t, lang } = useI18n();
   const tz = trainer.timezone;
   const coach = firstName(trainer.name);
@@ -34,6 +37,9 @@ export function Book() {
   });
   const [typeId, setTypeId] = useState(move?.sessionTypeId ?? types[0]?.id);
   const [slots, setSlots] = useState<Slot[] | null>(null);
+  const [full, setFull] = useState<Slot[]>([]);
+  const [waitFor, setWaitFor] = useState<Slot | null>(null);
+  const [waitBusy, setWaitBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [day, setDay] = useState<string | null>(null);
   const [pick, setPick] = useState<Slot | null>(null);
@@ -59,31 +65,53 @@ export function Book() {
     if (!typeId) return;
     const mine = ++request.current;
     setSlots(null);
+    setFull([]);
     setError(null);
     try {
-      const found = await api.freeSlots(typeId, today, DAYS);
-      if (mine === request.current) setSlots(found);
+      const [free, taken] = await Promise.all([
+        api.freeSlots(typeId, today, DAYS),
+        // the waitlist is the extra: if the full times cannot be read, booking the free ones still works. Moving has no waitlist.
+        move
+          ? Promise.resolve<Slot[]>([])
+          : api.fullSlots(typeId, today, DAYS).catch((e: unknown) => {
+              console.warn('full times unavailable', e);
+              return [] as Slot[];
+            }),
+      ]);
+      if (mine === request.current) {
+        setSlots(free);
+        setFull(taken);
+      }
     } catch (e) {
       if (mine === request.current) setError(codeOf(e));
     }
-  }, [api, typeId, today]);
+  }, [api, typeId, today, move]);
 
   useEffect(() => {
     setPick(null);
     void load();
   }, [load]);
 
+  // free and full times together, in time order; the full ones are what the waitlist is for
   const byDay = useMemo(() => {
-    const m = new Map<string, Slot[]>();
-    for (const s of slots ?? []) {
+    const all: Offered[] = [...(slots ?? []).map((s) => ({ ...s, full: false })), ...full.map((s) => ({ ...s, full: true }))];
+    all.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+    const m = new Map<string, Offered[]>();
+    for (const s of all) {
       const d = localParts(Date.parse(s.startsAt), tz).date;
       m.set(d, [...(m.get(d) ?? []), s]);
     }
     return m;
-  }, [slots, tz]);
+  }, [slots, full, tz]);
+  const waiting = useMemo(() => new Map(waitlist.filter((e) => e.sessionTypeId === typeId).map((e) => [e.startsAt, e])), [waitlist, typeId]);
 
-  // The picked day, or the first day with free slots once they load.
-  const activeDay = day && byDay.has(day) ? day : slots ? (days.find((d) => byDay.has(d)) ?? days[0]) : null;
+  // The picked day, or the first day with a free time (else the first with any) once they load.
+  const activeDay =
+    day && byDay.has(day)
+      ? day
+      : slots
+        ? (days.find((d) => byDay.get(d)?.some((s) => !s.full)) ?? days.find((d) => byDay.has(d)) ?? days[0])
+        : null;
 
   async function confirm() {
     if (!pick || !typeId) return;
@@ -114,6 +142,39 @@ export function Book() {
       else await refresh();
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function joinList(s: Slot) {
+    if (!typeId) return;
+    setWaitBusy(true);
+    try {
+      await api.joinWaitlist(typeId, s.startsAt);
+      haptic(18);
+      toast(t('wl.joined'));
+      setWaitFor(null);
+      await refresh();
+    } catch (e) {
+      toast(errorText(t, codeOf(e)), 'error');
+      setWaitFor(null);
+      await load(); // a place may have opened meanwhile: it shows as free now
+      await refresh();
+    } finally {
+      setWaitBusy(false);
+    }
+  }
+
+  async function leaveList(entry: WaitlistEntry) {
+    setWaitBusy(true);
+    try {
+      await api.leaveWaitlist(entry.id);
+      toast(t('wl.left'));
+      setWaitFor(null);
+      await refresh();
+    } catch (e) {
+      toast(errorText(t, codeOf(e)), 'error');
+    } finally {
+      setWaitBusy(false);
     }
   }
 
@@ -199,24 +260,28 @@ export function Book() {
           </div>
         ) : daySlots.length ? (
           <motion.div key={activeDay} className="slots" initial="hidden" animate="show" variants={{ show: { transition: { staggerChildren: 0.025 } } }}>
-            {daySlots.map((s) => (
-              <motion.button
-                key={s.startsAt}
-                className="slot"
-                aria-pressed={pick?.startsAt === s.startsAt}
-                variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0 } }}
-                onClick={() => setPick(s)}
-              >
-                <span>
-                  {fmtTime(s.startsAt, tz, lang)}
-                  {type && type.capacity > 1 && <small>{counted(t, lang, 'places', s.placesLeft)}</small>}
-                </span>
-              </motion.button>
-            ))}
+            {daySlots.map((s) => {
+              const onList = s.full && waiting.has(s.startsAt);
+              return (
+                <motion.button
+                  key={s.startsAt}
+                  className={`slot${s.full ? ' slot-full' : ''}`}
+                  aria-pressed={s.full ? onList : pick?.startsAt === s.startsAt}
+                  variants={{ hidden: { opacity: 0, y: 8 }, show: { opacity: 1, y: 0 } }}
+                  onClick={() => (s.full ? setWaitFor(s) : setPick(s))}
+                >
+                  <span>
+                    {fmtTime(s.startsAt, tz, lang)}
+                    {s.full ? <small>{t(onList ? 'wl.waiting' : 'wl.full')}</small> : type && type.capacity > 1 && <small>{counted(t, lang, 'places', s.placesLeft)}</small>}
+                  </span>
+                </motion.button>
+              );
+            })}
           </motion.div>
         ) : (
           <Empty icon={<CalendarX size={26} />} title={slots.length ? t('book.noDay') : t('book.noDays', { trainer: coach })} />
         )}
+        {daySlots.some((s) => s.full) && <p className="policy slots-hint">{t('wl.hint')}</p>}
       </section>
 
       <AnimatePresence>
@@ -281,6 +346,44 @@ export function Book() {
             <Button size="lg" block loading={busy} onClick={confirm}>
               {t('book.confirm')}
             </Button>
+          </>
+        )}
+      </Sheet>
+
+      <Sheet open={!!waitFor} onClose={() => setWaitFor(null)} title={t('wl.title')}>
+        {waitFor && type && (
+          <>
+            <div className="summary">
+              <div className="summary-row">
+                <span>{t('book.session')}</span>
+                <b>{type.name}</b>
+              </div>
+              <div className="summary-row">
+                <span>{t('book.day')}</span>
+                <b>
+                  {fmtLongDay(waitFor.startsAt, tz, lang)}, {fmtTime(waitFor.startsAt, tz, lang)}
+                </b>
+              </div>
+              {waiting.get(waitFor.startsAt) && (
+                <div className="summary-row">
+                  <span>{t('wl.title')}</span>
+                  <b>{t('wl.place', { n: waiting.get(waitFor.startsAt)!.position })}</b>
+                </div>
+              )}
+            </div>
+            {!waiting.has(waitFor.startsAt) && (
+              <p className="policy">{t('wl.body', { when: `${fmtLongDay(waitFor.startsAt, tz, lang)}, ${fmtTime(waitFor.startsAt, tz, lang)}`, trainer: coach })}</p>
+            )}
+            <p className="policy">{t('wl.note')}</p>
+            {waiting.has(waitFor.startsAt) ? (
+              <Button size="lg" block variant="secondary" loading={waitBusy} onClick={() => leaveList(waiting.get(waitFor.startsAt)!)}>
+                {t('wl.leave')}
+              </Button>
+            ) : (
+              <Button size="lg" block loading={waitBusy} onClick={() => joinList(waitFor)}>
+                {t('wl.join')}
+              </Button>
+            )}
           </>
         )}
       </Sheet>

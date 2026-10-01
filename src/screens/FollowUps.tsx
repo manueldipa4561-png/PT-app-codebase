@@ -1,11 +1,11 @@
-// "Da fare" in the trainer's Today tab: the people to remind in the next 48 hours (late cancels and no-shows cost
-// the most), the packs about to end, and the clients who went quiet. One tap opens WhatsApp with the message
+// "Da fare" in the trainer's Today tab: the places that opened for people on the waitlist, the people to remind in the
+// next 48 hours (late cancels and no-shows cost the most), the packs about to end, and the clients who went quiet. One tap opens WhatsApp with the message
 // already written for that person; the row then shows "Scritto" so nobody is written to twice.
 import { useCallback, useState, type ReactNode } from 'react';
-import { ArrowsClockwise, Bell, Check, CheckCircle, Copy, Hourglass, WhatsappLogo } from '@phosphor-icons/react';
+import { ArrowsClockwise, Bell, CalendarPlus, Check, CheckCircle, Copy, Hourglass, WhatsappLogo } from '@phosphor-icons/react';
 import type { TrainerData } from '../api.ts';
 import type { Client } from '../domain.ts';
-import { dayWord, quietClients, renewals, upcomingReminders, waLink } from '../followups.ts';
+import { dayWord, openSeats, quietClients, renewals, upcomingReminders, waLink } from '../followups.ts';
 import { initials } from '../theme.ts';
 import { counted, fmtLongDay, fmtTime, useI18n } from '../i18n.ts';
 import { Empty, useApp } from '../ui.tsx';
@@ -94,6 +94,9 @@ export function FollowUps({ data }: { data: TrainerData }) {
     }
   }
 
+  const seats = openSeats(data.waitlist, data.clients, now)
+    .map((s) => ({ ...s, id: `seat:${s.entry.id}`, within: WRITTEN_FOR }))
+    .sort(byDone); // a stable sort: the ones not written to yet come first, each keeping its place in line
   const reminders = upcomingReminders(data.bookings, data.clients, now)
     .map((r) => ({ ...r, id: `remind:${r.booking.id}`, within: REMINDED_FOR }))
     .sort(byDone);
@@ -104,7 +107,7 @@ export function FollowUps({ data }: { data: TrainerData }) {
     .map((q) => ({ ...q, id: `quiet:${q.client.id}`, within: WRITTEN_FOR }))
     .sort(byDone);
 
-  if (!reminders.length && !renew.length && !quiet.length) {
+  if (!seats.length && !reminders.length && !renew.length && !quiet.length) {
     return <Empty icon={<CheckCircle size={26} />} title={t('fu.allClear')} body={t('fu.allClearBody')} />;
   }
 
@@ -113,6 +116,37 @@ export function FollowUps({ data }: { data: TrainerData }) {
 
   return (
     <div className="stack" style={{ gap: 22 }}>
+      {seats.length > 0 && (
+        <section>
+          <h2 className="section-title follow-title">
+            <CalendarPlus size={16} aria-hidden /> {t('fu.seats')} {count(seats.length)}
+          </h2>
+          <div className="list">
+            {seats.map(({ entry, client, id, within }) => {
+              const word = dayWord(entry.startsAt, now, tz);
+              const day = word ? t(`fu.${word}` as 'fu.today') : fmtLongDay(entry.startsAt, tz, lang);
+              const time = fmtTime(entry.startsAt, tz, lang);
+              const text = t('fu.seatMsg', { name: client.name.split(/\s+/)[0], when: `${day} ${t('fu.atTime')} ${time}`, link: appLink });
+              return (
+                <FollowRow
+                  key={id}
+                  client={client}
+                  sub={
+                    <>
+                      <b className="follow-lead tabular">{time}</b> {day} · {typeName(entry.sessionTypeId)} · {t('wl.place', { n: entry.position })}
+                    </>
+                  }
+                  done={recent(id, within)}
+                  label={t('fu.seat')}
+                  noPhone={!waLink(client.phone, 'x')}
+                  onSend={() => send(id, client, text)}
+                />
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {reminders.length > 0 && (
         <section>
           <h2 className="section-title follow-title">

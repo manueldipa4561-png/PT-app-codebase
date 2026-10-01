@@ -10,17 +10,21 @@ import {
   candidateSlots,
   firstName,
   freeSlots,
+  fullSlots,
   isEmail,
   isPhone,
   localParts,
   newReferralCode,
   placesLeftAt,
   slotStatus,
+  waitlistEntries,
+  waitlistStatus,
   type Booking,
   type Client,
   type LedgerEntry,
   type SessionType,
   type TimeOff,
+  type WaitlistEntry,
 } from './domain.ts';
 import { buildSeed, DEMO_USER, DEMO_VERSION, type DemoDB, type DemoTrainer } from './seed.ts';
 import type { Api, Me, ReferralView, TrainerData } from './api.ts';
@@ -184,6 +188,27 @@ export function createDemoApi(opts: DemoOptions = {}): DemoApi {
     if (st.credits > 0) addLedger({ trainerId: t.id, clientId: c.id, delta: -st.credits, reason: 'booking', bookingId: b.id });
     return b;
   };
+  /** Places left at a start of a session type, or null when it is not offered there (no hours, or time off). */
+  const placesAt = (typeId: string, start: number): number | null => {
+    const st = db.sessionTypes.find((s) => s.id === typeId);
+    if (!st) return null;
+    const t = trainer(st.trainerId);
+    const c = candidateSlots({ ...slotInput(t, st), from: localParts(start, t.timezone).date, days: 1 }).find((x) => Date.parse(x.startsAt) === start);
+    return !c || c.inTimeOff ? null : c.placesLeft;
+  };
+  /** The waiting list as the caller sees it: the owner everyone's, a client their own. */
+  const waitlistOf = (t: DemoTrainer): WaitlistEntry[] =>
+    waitlistEntries(
+      db.waitlist.filter((w) => w.trainerId === t.id),
+      {
+        now: clock(),
+        minNoticeHours: t.minNoticeHours,
+        placesAt,
+        holds: (clientId, start) => !!retryOf(clientId, start),
+        alive: (clientId) => db.clients.some((c) => c.id === clientId && !c.deletedAt),
+      },
+      { owner: isOwner(t), clientId: myClient(t.id)?.id ?? null },
+    );
 
   const api: DemoApi = {
     mode: 'demo',
@@ -233,6 +258,7 @@ export function createDemoApi(opts: DemoOptions = {}): DemoApi {
       );
       db.products.push(...own(db.products).map((x) => ({ ...x, id: id(x.id)!, trainerId: t.id })));
       db.visits.push(...own(db.visits).map((x) => ({ ...x, trainerId: t.id })));
+      db.waitlist.push(...own(db.waitlist).map((x) => ({ ...x, id: id(x.id)!, trainerId: t.id, clientId: id(x.clientId)!, sessionTypeId: id(x.sessionTypeId)! })));
       save();
     },
 
@@ -380,6 +406,15 @@ export function createDemoApi(opts: DemoOptions = {}): DemoApi {
       if (!Number.isInteger(days) || days < 1 || days > 31) throw new AppError('INVALID_INPUT', 'days');
       return freeSlots({ ...slotInput(t, st), from, days, now: clock() });
     },
+    async fullSlots(sessionTypeId, from, days) {
+      await wait();
+      const st = activeType(sessionTypeId);
+      const t = trainer(st.trainerId);
+      const me = myClient(t.id);
+      if (!me && !isOwner(t)) throw new AppError('NOT_ALLOWED');
+      if (!Number.isInteger(days) || days < 1 || days > 31) throw new AppError('INVALID_INPUT', 'days');
+      return fullSlots({ ...slotInput(t, st), from, days, now: clock() }, me?.id ?? null);
+    },
     async book(sessionTypeId, startsAt) {
       await wait();
       const st = activeType(sessionTypeId);
@@ -449,6 +484,36 @@ export function createDemoApi(opts: DemoOptions = {}): DemoApi {
         throw e;
       }
     },
+    async joinWaitlist(sessionTypeId, startsAt) {
+      await wait();
+      const st = activeType(sessionTypeId);
+      const t = trainer(st.trainerId);
+      const c = myClient(t.id);
+      if (!c) throw new AppError('NOT_ALLOWED');
+      const start = parseStart(startsAt);
+      if (db.waitlist.some((w) => w.clientId === c.id && w.sessionTypeId === st.id && Date.parse(w.startsAt) === start)) return; // a retry
+      const status = waitlistStatus({ ...slotInput(t, st), now: clock() }, start);
+      if (status !== 'ok') throw new AppError(status);
+      if (retryOf(c.id, start)) throw new AppError('INVALID_INPUT', 'already booked'); // they hold this session
+      // like the SQL: rows only come in here, so the old ones go here
+      db.waitlist = db.waitlist.filter((w) => !(w.trainerId === t.id && Date.parse(w.startsAt) < clock() - 24 * HOUR));
+      db.waitlist.push({ id: uid(), trainerId: t.id, clientId: c.id, sessionTypeId: st.id, startsAt: iso(start), createdAt: nowIso() });
+      save();
+    },
+    async leaveWaitlist(entryId) {
+      await wait();
+      const w = db.waitlist.find((x) => x.id === entryId);
+      // like the SQL: an entry that is gone, or not theirs, changes nothing
+      if (!w || myClient(w.trainerId)?.id !== w.clientId) return;
+      db.waitlist = db.waitlist.filter((x) => x.id !== entryId);
+      save();
+    },
+    async myWaitlist(trainerId) {
+      await wait();
+      const t = trainer(trainerId);
+      const c = myClient(t.id);
+      return c ? waitlistOf(t).filter((e) => e.clientId === c.id) : [];
+    },
     async deleteAccount(trainerId) {
       await wait();
       const c = myClient(trainerId);
@@ -479,6 +544,7 @@ export function createDemoApi(opts: DemoOptions = {}): DemoApi {
         packs: of(db.packs),
         timeOff: of(db.timeOff),
         visits: of(db.visits),
+        waitlist: waitlistOf(t),
       };
     },
     async addClient(trainerId, input) {

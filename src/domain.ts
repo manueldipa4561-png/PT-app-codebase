@@ -18,6 +18,7 @@ export type ErrorCode =
   | 'NOT_FOUND'
   | 'NOT_ALLOWED'
   | 'SLOT_TAKEN'
+  | 'SLOT_OPEN'
   | 'NO_CREDITS'
   | 'TOO_SOON'
   | 'TOO_FAR'
@@ -25,7 +26,7 @@ export type ErrorCode =
 
 export const ERROR_CODES: readonly ErrorCode[] = [
   'TENANT_NOT_FOUND', 'NETWORK', 'RATE_LIMITED', 'INVALID_CODE', 'INVALID_INPUT', 'NOT_FOUND',
-  'NOT_ALLOWED', 'SLOT_TAKEN', 'NO_CREDITS', 'TOO_SOON', 'TOO_FAR', 'OUTSIDE_HOURS',
+  'NOT_ALLOWED', 'SLOT_TAKEN', 'SLOT_OPEN', 'NO_CREDITS', 'TOO_SOON', 'TOO_FAR', 'OUTSIDE_HOURS',
 ];
 
 export class AppError extends Error {
@@ -180,6 +181,24 @@ export interface Slot {
   endsAt: string;
   placesLeft: number;
   location: string | null;
+}
+
+/** A client waiting for a place in a session that is full, as stored. */
+export interface WaitlistRow {
+  id: string;
+  trainerId: string;
+  clientId: string;
+  sessionTypeId: string;
+  startsAt: string;
+  createdAt: string;
+}
+
+/** What the waiting list shows: worked out when it is read, never stored. */
+export interface WaitlistEntry extends WaitlistRow {
+  /** A place is free now: the client can book it (outside the minimum notice), the trainer can book it for them. */
+  open: boolean;
+  /** 1 is first in line, first come first served. */
+  position: number;
 }
 
 // ── time: wall-clock times in the trainer's zone, stored as UTC instants ──────────
@@ -337,15 +356,27 @@ export function candidateSlots(q: Omit<SlotQuery, 'now'>): Candidate[] {
   return [...seen.values()].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
 }
 
-export function freeSlots(q: SlotQuery): Slot[] {
+/** The slots a client may book or wait for: offered, and inside the minimum notice and the booking horizon. */
+function offeredSlots(q: SlotQuery): Candidate[] {
   const earliest = q.now + q.rules.minNoticeHours * HOUR;
   const latest = q.now + q.rules.bookingHorizonDays * DAY;
-  return candidateSlots(q)
-    .filter((c) => {
-      const s = Date.parse(c.startsAt);
-      return !c.inTimeOff && c.placesLeft > 0 && s >= earliest && s <= latest;
-    })
-    .map((c) => ({ startsAt: c.startsAt, endsAt: c.endsAt, placesLeft: c.placesLeft, location: c.location }));
+  return candidateSlots(q).filter((c) => {
+    const s = Date.parse(c.startsAt);
+    return !c.inTimeOff && s >= earliest && s <= latest;
+  });
+}
+const asSlot = (c: Candidate): Slot => ({ startsAt: c.startsAt, endsAt: c.endsAt, placesLeft: c.placesLeft, location: c.location });
+
+export function freeSlots(q: SlotQuery): Slot[] {
+  return offeredSlots(q).filter((c) => c.placesLeft > 0).map(asSlot);
+}
+
+/** The offered slots with no place left, the ones to wait for. Never a session `clientId` already holds. */
+export function fullSlots(q: SlotQuery, clientId: string | null): Slot[] {
+  const held = new Set(q.bookings.filter((b) => b.clientId === clientId && b.status === 'booked').map((b) => Date.parse(b.startsAt)));
+  return offeredSlots(q)
+    .filter((c) => c.placesLeft === 0 && !held.has(Date.parse(c.startsAt)))
+    .map(asSlot);
 }
 
 /** Why a client cannot book `start`, or 'ok'. Checked in this order by the SQL too. */
@@ -358,6 +389,54 @@ export function slotStatus(q: Omit<SlotQuery, 'from' | 'days'>, start: number): 
   if (!c || c.inTimeOff) return 'OUTSIDE_HOURS';
   if (c.placesLeft <= 0) return 'SLOT_TAKEN';
   return 'ok';
+}
+
+/** Why a client cannot join the waitlist of `start`, or 'ok': the booking checks, with the place taken instead of free. */
+export function waitlistStatus(q: Omit<SlotQuery, 'from' | 'days'>, start: number): 'ok' | ErrorCode {
+  const s = slotStatus(q, start);
+  return s === 'SLOT_TAKEN' ? 'ok' : s === 'ok' ? 'SLOT_OPEN' : s;
+}
+
+/**
+ * The waiting list as `viewer` may see it: the owner sees everyone's, a client only their own. Only entries that still
+ * mean something: the session is ahead and still offered (`placesAt` is null when it is not), the client is still
+ * here and does not already hold it. The SQL (waitlist_entries) says the same, and tests/scenarios.ts holds both to it.
+ */
+export function waitlistEntries(
+  rows: readonly WaitlistRow[],
+  ctx: {
+    now: number;
+    minNoticeHours: number;
+    placesAt(sessionTypeId: string, start: number): number | null;
+    holds(clientId: string, start: number): boolean;
+    alive(clientId: string): boolean;
+  },
+  viewer: { owner: boolean; clientId: string | null },
+): WaitlistEntry[] {
+  const places = new Map<string, number | null>();
+  const placesOf = (typeId: string, start: number) => {
+    const key = `${typeId}|${start}`;
+    if (!places.has(key)) places.set(key, ctx.placesAt(typeId, start));
+    return places.get(key) ?? null;
+  };
+  const live = rows
+    .filter((w) => {
+      const start = Date.parse(w.startsAt);
+      return start > ctx.now && ctx.alive(w.clientId) && !ctx.holds(w.clientId, start) && placesOf(w.sessionTypeId, start) !== null;
+    })
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt)); // a tie keeps the order the rows came in
+  const inLine = new Map<string, number>();
+  const out: WaitlistEntry[] = [];
+  for (const w of live) {
+    const start = Date.parse(w.startsAt);
+    const key = `${w.sessionTypeId}|${start}`;
+    const position = (inLine.get(key) ?? 0) + 1;
+    inLine.set(key, position);
+    if (!viewer.owner && w.clientId !== viewer.clientId) continue;
+    const open = (placesOf(w.sessionTypeId, start) ?? 0) > 0 && (viewer.owner || start >= ctx.now + ctx.minNoticeHours * HOUR);
+    out.push({ ...w, open, position });
+  }
+  return out.sort((a, b) => a.startsAt.localeCompare(b.startsAt) || a.position - b.position || a.sessionTypeId.localeCompare(b.sessionTypeId) || a.id.localeCompare(b.id));
 }
 
 // ── cancellations and credits ────────────────────────────────────────────────

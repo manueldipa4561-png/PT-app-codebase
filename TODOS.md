@@ -46,13 +46,12 @@ Deferred work from the CEO review and the outside review (Codex). Each item says
 - **Effort:** M.
 - **Depends on:** an Edge Function that serves the feed, and a token column on `trainers`.
 
-### Waitlist that offers freed slots
-- **What:** a client joins the waitlist of a full slot. When someone cancels, the first in line gets an offer with a short time to accept.
-- **Why:** a refilled cancellation is money for the trainer (CEO review, deferred proposal #6). Wished for by about 10 sources in the research.
-- **Priority:** P2, the next feature to build.
-- **Effort:** M. A table and two functions in the database, and the booking screen must also show full slots (today `free_slots` returns only free ones).
-- **First step that needs no server:** the trainer's Oggi tab shows "a place freed up: Marco is waiting" with a WhatsApp message already written, like the other follow-ups.
-- **Depends on:** server notifications (email or push) for the automatic offer.
+### Waitlist: the automatic offer
+- **What:** when a place opens, the first in line gets a message (email, later push) and the place is held for them for a short time. Nobody else can book it meanwhile.
+- **Why:** the waitlist that exists today (see Done) shows who is waiting and lets the trainer write to them in one tap, but the app says nothing by itself and holds nothing: whoever opens the app first takes the place.
+- **Priority:** P2, after the server confirmations.
+- **Effort:** M. An offer time on the entry, the hold inside `free_slots` and `book`, scenarios for it in both backends, and the sender.
+- **Depends on:** server booking confirmations and reminders (the same sender).
 
 ### Web Push for home-screen installs
 - **What:** push notifications for reminders and waitlist offers in the installed web app. iPhone needs iOS 16.4 or later and the app added to the home screen.
@@ -156,6 +155,7 @@ Deferred work from the CEO review and the outside review (Codex). Each item says
 
 ## Done
 
+- **Waitlist.** A full time shows as "Pieno" in the booking grid and a client can join its list (free, no session used). When a place opens they see it on Home, one tap to book, and in the Agenda; the trainer sees it in the Oggi tab under "Posti liberi da riempire", first in line first, with the WhatsApp message already written. The list holds nothing: whoever books first has the place. Whether a place is open and who is first is worked out when the list is read, so booking, cancelling and moving never touch it. SQL migration `20260930010000`, the same rules in `src/domain.ts`, six shared scenarios.
 - **A preview that sells** (demo site). A trainer who opens a personal link picks look and colors, sees the monthly price (`src/offer.ts`, ends by itself on 4 October 2026, then list price) and taps "Voglio la mia app": the form on puntoduestudio.it arrives pre-filled. Our own tools moved behind `?studio=1`.
 - **Follow-ups in the trainer's Oggi tab.** Sessions to remind in the next 48 hours, packs to renew (2 or fewer sessions left), clients quiet for 14+ days, each with a WhatsApp message already written (`src/followups.ts`, tested). Rows are marked "Scritto" on this device only: not shared between the trainer's devices.
 - **Move a session** ("Sposta" in the Agenda): one atomic step, `reschedule_booking` in the database (migration `20260930000000`), allowed while a free cancellation still is.

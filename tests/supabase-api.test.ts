@@ -70,9 +70,10 @@ async function useScenarioClock(db: PGlite) {
       as $$ select coalesce(nullif(current_setting('app_test.now', true), '')::timestamptz, pg_catalog.now()) $$;`);
   const { rows } = await db.query<{ def: string }>(
     `select pg_get_functiondef(p.oid) as def from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname = 'public' and p.proname in ('free_slots', 'book_session', 'cancel_booking', 'reschedule_booking', 'set_attendance')`,
+      where n.nspname = 'public'
+        and p.proname in ('free_slots', 'full_slots', 'book_session', 'cancel_booking', 'reschedule_booking', 'set_attendance', 'join_waitlist', 'waitlist_entries')`,
   );
-  assert.equal(rows.length, 5);
+  assert.equal(rows.length, 8);
   for (const { def } of rows) {
     const patched = def.replace(/\bnow\(\)/g, 'app_test.now()');
     assert.equal(patched.split('app_test.now()').length, 2, `expected one now() in ${def}`);
@@ -181,6 +182,15 @@ function adapterHarness(env: Env): Harness {
     adjust: (actorId, clientId, delta, opKey) => run(async () => (await as(actorId).adjustCredits(clientId, delta, 'test', uuidOf(opKey)), null)),
     reverse: (actorId, referralId) => run(async () => (await as(actorId).reverseReferral(referralId), null)),
     freeSlots: (userId, typeId, from, days, now) => run(async () => (await as(userId).freeSlots(typeId, from, days)).map((s) => s.startsAt), now),
+    fullSlots: (userId, typeId, from, days, now) => run(async () => (await as(userId).fullSlots(typeId, from, days)).map((s) => s.startsAt), now),
+    joinWaitlist: (userId, typeId, startsAt, now) => run(async () => (await as(userId).joinWaitlist(typeId, startsAt), null), now),
+    leaveWaitlist: (userId, entryId) => run(async () => (await as(userId).leaveWaitlist(entryId), null)),
+    waitlist: (userId, trainerId, now) =>
+      run(async () => {
+        const api = as(userId);
+        const list = owners.get(trainerId) === userId ? (await api.trainerData(trainerId)).waitlist : await api.myWaitlist(trainerId);
+        return list.map((e) => ({ id: e.id, clientId: e.clientId, startsAt: e.startsAt, open: e.open, position: e.position }));
+      }, now),
     balance: (clientId) => count(`select coalesce(sum(delta), 0)::int as n from public.credit_ledger where client_id = $1`, [clientId]),
     ledgerCount: (clientId, reason) =>
       count(`select count(*)::int as n from public.credit_ledger where client_id = $1 and ($2::text is null or reason = $2)`, [clientId, reason ?? null]),
@@ -300,6 +310,9 @@ test('adapter: getTrainer, sessionTypes and products work signed out; private re
   await fails(anon.trainerData(w.t1), 'NOT_ALLOWED');
   // without a session the client-only functions are closed at the grant level: same code as the demo
   await fails(anon.freeSlots(w.personal, today(ROME), 7), 'NOT_ALLOWED');
+  await fails(anon.fullSlots(w.personal, today(ROME), 7), 'NOT_ALLOWED');
+  assert.deepEqual(await anon.myWaitlist(w.t1), []);
+  await fails(anon.joinWaitlist(w.personal, iso(Date.now() + 3 * DAY)), 'NOT_ALLOWED');
   await fails(anon.book(w.personal, iso(Date.now() + 3 * DAY)), 'NOT_ALLOWED');
   await fails(anon.join(w.t1, { name: 'Nobody', acceptTerms: true }), 'NOT_ALLOWED');
 });
@@ -586,6 +599,64 @@ test('adapter: deleteAccount anonymizes the client and removes a login nothing e
   w.env.fake.dropNext('/auth/v1/logout');
   await hal.api.deleteAccount(w.t1);
   assert.deepEqual(await hal.api.me(w.t1), SIGNED_OUT);
+});
+
+test('adapter: the waitlist, on the real clock', async () => {
+  const w = await world;
+  const { marta, nico } = people;
+  const join = async (email: string) => {
+    const p = await signUp(w.env, email);
+    const c = await p.api.join(w.t1, { name: email, acceptTerms: true });
+    await marta.api.markPackPaid(c.id, { credits: 5, method: 'cash', opId: randomUUID() });
+    return { ...p, clientId: c.id };
+  };
+  const holder = await join('wl-holder@example.com');
+  const waiter = await join('wl-waiter@example.com');
+  const start = Date.now();
+  const slots = await holder.api.freeSlots(w.personal, today(ROME), 7);
+  const far = slots.find((s) => Date.parse(s.startsAt) >= start + 30 * HOUR);
+  assert.ok(far);
+  const free = slots.find((s) => Date.parse(s.startsAt) >= Date.parse(far.startsAt) + HOUR); // starts when the held session ends
+  assert.ok(free);
+  const held = await holder.api.book(w.personal, far.startsAt);
+
+  // the full slot is offered to wait for, and only to the others
+  const full = (await waiter.api.fullSlots(w.personal, today(ROME), 7)).find((s) => s.startsAt === far.startsAt);
+  assert.deepEqual(full, { startsAt: far.startsAt, endsAt: far.endsAt, placesLeft: 0, location: null });
+  assert.ok(!(await holder.api.fullSlots(w.personal, today(ROME), 7)).some((s) => s.startsAt === far.startsAt), 'never the session they hold');
+  assert.ok(!(await waiter.api.fullSlots(w.personal, today(ROME), 7)).some((s) => s.startsAt === free.startsAt), 'a free slot is not a full one');
+  await fails(waiter.api.fullSlots(w.personal, today(ROME), 32), 'INVALID_INPUT');
+
+  await waiter.api.joinWaitlist(w.personal, far.startsAt);
+  await waiter.api.joinWaitlist(w.personal, far.startsAt); // a retry
+  await fails(waiter.api.joinWaitlist(w.personal, free.startsAt), 'SLOT_OPEN');
+  await fails(holder.api.joinWaitlist(w.personal, far.startsAt), 'INVALID_INPUT');
+  await fails(waiter.api.joinWaitlist(w.retired, far.startsAt), 'NOT_FOUND');
+  await fails(waiter.api.joinWaitlist(w.personal, iso(start + HOUR)), 'TOO_SOON');
+  await fails(nico.api.joinWaitlist(w.personal, far.startsAt), 'NOT_ALLOWED'); // a client of another trainer, or none
+  await fails(marta.api.joinWaitlist(w.personal, far.startsAt), 'NOT_ALLOWED'); // the trainer is not a client
+
+  const [entry, ...rest] = await waiter.api.myWaitlist(w.t1);
+  assert.equal(rest.length, 0);
+  assert.deepEqual(
+    { ...entry, id: '', createdAt: '' },
+    { id: '', trainerId: w.t1, clientId: waiter.clientId, sessionTypeId: w.personal, startsAt: far.startsAt, createdAt: '', open: false, position: 1 },
+  );
+  assert.ok(isIso(entry.createdAt) && entry.id.length === 36);
+  assert.deepEqual(await holder.api.myWaitlist(w.t1), []);
+  assert.deepEqual((await marta.api.trainerData(w.t1)).waitlist, [entry], 'the trainer sees every entry');
+  await fails(holder.api.trainerData(w.t1), 'NOT_ALLOWED');
+
+  await holder.api.cancel(held.id); // a free cancellation: the place opens for the one waiting
+  assert.equal((await waiter.api.myWaitlist(w.t1))[0].open, true);
+  assert.equal((await marta.api.trainerData(w.t1)).waitlist[0].open, true);
+
+  await holder.api.leaveWaitlist(entry.id); // not theirs: nothing happens
+  assert.equal((await waiter.api.myWaitlist(w.t1)).length, 1);
+  await waiter.api.leaveWaitlist(entry.id);
+  await waiter.api.leaveWaitlist(entry.id); // twice is fine
+  assert.deepEqual(await waiter.api.myWaitlist(w.t1), []);
+  assert.deepEqual((await marta.api.trainerData(w.t1)).waitlist, []);
 });
 
 test('adapter: signOut, and sessions that ended somewhere else', async () => {

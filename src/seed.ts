@@ -22,6 +22,7 @@ import {
   type SessionType,
   type TimeOff,
   type TrainerPublic,
+  type WaitlistRow,
 } from './domain.ts';
 
 export interface DemoTrainer extends TrainerPublic {
@@ -49,9 +50,10 @@ export interface DemoDB {
   referrals: Referral[];
   products: Product[];
   visits: DayVisits[];
+  waitlist: WaitlistRow[];
 }
 
-export const DEMO_VERSION = 7;
+export const DEMO_VERSION = 8;
 export const DEMO_USER = 'demo-user';
 export const DEMO_EMAIL = 'sara.conti@example.com';
 export const DEMO_PAYMENT_URL = 'https://buy.stripe.com/demo';
@@ -286,6 +288,7 @@ export function emptyDB(now: number): DemoDB {
     referrals: [],
     products: [],
     visits: [],
+    waitlist: [],
   };
 }
 
@@ -533,5 +536,37 @@ function seedTrainer(db: DemoDB, spec: SeedSpec, now: number): void {
   const left = db.ledger.filter((l) => l.clientId === low.id).reduce((sum, l) => sum + l.delta, 0);
   if (left > 1) {
     db.ledger.push({ id: id('lg'), trainerId: t.id, clientId: low.id, delta: 1 - left, reason: 'manual', note: 'Sessioni extra svolte', createdAt: iso(now - 2 * DAY) });
+  }
+
+  // The waiting list, in two states. One session is full and Sara waits behind someone. In another a place has just
+  // opened: she is waiting for it too, and the trainer's panel shows who to write to. Nothing here is random.
+  const waiting = others.filter((c) => c.userId && c.id !== quiet.id);
+  let full: Candidate | undefined;
+  let freed: Candidate | undefined;
+  let holder: Client | undefined;
+  for (let d = 2; d <= 10 && !(full && freed); d++) {
+    for (const c of candidatesOn(main, addDays(today, d))) {
+      const start = Date.parse(c.startsAt);
+      if (c.inTimeOff || start < now + (t.minNoticeHours + 24) * HOUR) continue;
+      const booked = mine().find((b) => b.status === 'booked' && b.sessionTypeId === main.id && b.startsAt === c.startsAt);
+      if (!full && booked && booked.clientId !== sara.id && c.placesLeft === 0) {
+        full = c;
+        holder = db.clients.find((x) => x.id === booked.clientId);
+      } else if (!freed && c.placesLeft > 0 && !mine().some((b) => b.status === 'booked' && b.clientId === sara.id && b.startsAt === c.startsAt)) {
+        freed = c;
+      }
+    }
+  }
+  const wait = (c: Candidate, who: Client, hoursAgo: number) =>
+    db.waitlist.push({ id: id('wl'), trainerId: t.id, clientId: who.id, sessionTypeId: main.id, startsAt: c.startsAt, createdAt: iso(now - hoursAgo * HOUR) });
+  if (full && holder) {
+    const ahead = waiting.find((c) => c.id !== holder!.id);
+    if (ahead) wait(full, ahead, 70);
+    wait(full, sara, 26);
+  }
+  if (freed) {
+    const first = waiting[1];
+    if (first) wait(freed, first, 20);
+    wait(freed, sara, 2);
   }
 }

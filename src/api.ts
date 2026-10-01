@@ -15,6 +15,7 @@ import type {
   Slot,
   TimeOff,
   TrainerPublic,
+  WaitlistEntry,
 } from './domain.ts';
 
 export interface Me {
@@ -40,6 +41,8 @@ export interface TrainerData {
   packs: PackPurchase[];
   timeOff: TimeOff[];
   visits: DayVisits[];
+  /** Everyone waiting for a place, with the ones whose place is free now marked `open`. */
+  waitlist: WaitlistEntry[];
 }
 
 export interface JoinInput {
@@ -75,10 +78,18 @@ export interface Api {
   myBookings(trainerId: string): Promise<Booking[]>;
   myReferrals(trainerId: string): Promise<ReferralView[]>;
   freeSlots(sessionTypeId: string, from: string, days: number): Promise<Slot[]>;
+  /** The slots with no place left: the ones a client can wait for. */
+  fullSlots(sessionTypeId: string, from: string, days: number): Promise<Slot[]>;
   book(sessionTypeId: string, startsAt: string): Promise<Booking>;
   cancel(bookingId: string): Promise<Booking>;
   /** Moves the client's own session to another slot in one step (a free cancel and a new booking, or nothing). */
   reschedule(bookingId: string, startsAt: string): Promise<Booking>;
+  /** Waits for a place in a full session: a free one is booked, not waited for (SLOT_OPEN). Joining twice is one entry. */
+  joinWaitlist(sessionTypeId: string, startsAt: string): Promise<void>;
+  /** Leaves the waitlist. An entry that is gone, or not the client's, changes nothing. */
+  leaveWaitlist(entryId: string): Promise<void>;
+  /** The client's own entries that still count, with their place in line and whether a place is free now. */
+  myWaitlist(trainerId: string): Promise<WaitlistEntry[]>;
   deleteAccount(trainerId: string): Promise<void>;
 
   trainerData(trainerId: string): Promise<TrainerData>;

@@ -12,6 +12,15 @@ export interface TrainerOpts {
   bonusReferred?: number;
 }
 
+/** One waiting-list entry as a viewer sees it. */
+export interface Waiting {
+  id: string;
+  clientId: string;
+  startsAt: string;
+  open: boolean;
+  position: number;
+}
+
 export interface Harness {
   trainer(o?: TrainerOpts): Promise<string>;
   ownerOf(trainerId: string): string;
@@ -30,6 +39,11 @@ export interface Harness {
   adjust(actorId: string, clientId: string, delta: number, opKey: string): Promise<Result<null>>;
   reverse(actorId: string, referralId: string): Promise<Result<null>>;
   freeSlots(userId: string, typeId: string, from: string, days: number, now: string): Promise<Result<string[]>>;
+  fullSlots(userId: string, typeId: string, from: string, days: number, now: string): Promise<Result<string[]>>;
+  joinWaitlist(userId: string, typeId: string, startsAt: string, now: string): Promise<Result<null>>;
+  leaveWaitlist(userId: string, entryId: string): Promise<Result<null>>;
+  /** The list as this person sees it: everyone's for the trainer, only their own for a client, nothing for anyone else. */
+  waitlist(userId: string, trainerId: string, now: string): Promise<Result<Waiting[]>>;
   balance(clientId: string): Promise<number>;
   ledgerCount(clientId: string, reason?: string): Promise<number>;
   bookingCount(clientId: string, status?: string, bookedBy?: string): Promise<number>;
@@ -51,6 +65,7 @@ function must<T>(r: Result<T>): T {
   return r.value;
 }
 const code = (r: Result<unknown>) => (r.ok ? 'ok' : r.code);
+const summary = (list: Waiting[]) => list.map((e) => [e.clientId, e.startsAt, e.open, e.position]);
 
 async function setup(h: Harness, o: TrainerOpts = {}, type = { minutes: 60, capacity: 1, credits: 1 }) {
   const t = await h.trainer(o);
@@ -324,6 +339,121 @@ export const scenarios: Array<{ name: string; run(h: Harness): Promise<void> }> 
       const later = must(await h.book(a.u, ty, NEXT_MON_7, NOW));
       assert.equal(code(await h.reschedule(b.u, later.id, NEXT_MON_8, NOW)), 'NOT_ALLOWED');
       assert.equal(await h.bookingCount(a.c.id, 'booked'), 2);
+    },
+  },
+  {
+    name: 'a full slot can be waited for, a free one is booked instead',
+    async run(h) {
+      const { t, ty } = await setup(h);
+      const a = await client(h, t, 'wl-a@example.com', 5);
+      const b = await client(h, t, 'wl-b@example.com', 5);
+      must(await h.book(a.u, ty, MON_7, NOW));
+      // 07:30 overlaps the booked hour, so it is full too; a client is never offered the session they hold
+      assert.deepEqual(must(await h.fullSlots(b.u, ty, '2026-10-05', 1, NOW)), [MON_7, MON_730]);
+      assert.deepEqual(must(await h.fullSlots(a.u, ty, '2026-10-05', 1, NOW)), [MON_730]);
+      must(await h.joinWaitlist(b.u, ty, MON_7, NOW));
+      must(await h.joinWaitlist(b.u, ty, MON_7, NOW)); // a retry is the same entry
+      assert.deepEqual(summary(must(await h.waitlist(b.u, t, NOW))), [[b.c.id, MON_7, false, 1]]);
+      assert.equal(code(await h.joinWaitlist(b.u, ty, MON_8, NOW)), 'SLOT_OPEN');
+      assert.equal(code(await h.joinWaitlist(a.u, ty, MON_7, NOW)), 'INVALID_INPUT');
+      assert.equal(await h.balance(b.c.id), 5); // waiting costs nothing
+    },
+  },
+  {
+    name: 'a place that opens is free for everyone waiting, first in line first',
+    async run(h) {
+      const { t, ty, owner } = await setup(h);
+      const a = await client(h, t, 'wo-a@example.com', 5);
+      const b = await client(h, t, 'wo-b@example.com', 5);
+      const c = await client(h, t, 'wo-c@example.com', 5);
+      const held = must(await h.book(a.u, ty, NEXT_MON_7, NOW));
+      must(await h.joinWaitlist(b.u, ty, NEXT_MON_7, NOW));
+      must(await h.joinWaitlist(c.u, ty, NEXT_MON_7, NOW));
+      // the trainer sees the whole line, each client only their own place in it
+      assert.deepEqual(summary(must(await h.waitlist(owner, t, NOW))), [[b.c.id, NEXT_MON_7, false, 1], [c.c.id, NEXT_MON_7, false, 2]]);
+      assert.deepEqual(summary(must(await h.waitlist(c.u, t, NOW))), [[c.c.id, NEXT_MON_7, false, 2]]);
+      assert.deepEqual(must(await h.waitlist(a.u, t, NOW)), []);
+
+      must(await h.cancel(a.u, held.id, NOW)); // a free cancellation: the place is open
+      assert.deepEqual(summary(must(await h.waitlist(owner, t, NOW))), [[b.c.id, NEXT_MON_7, true, 1], [c.c.id, NEXT_MON_7, true, 2]]);
+      must(await h.book(c.u, ty, NEXT_MON_7, NOW)); // whoever books first takes it, the list does not hold it
+      assert.deepEqual(summary(must(await h.waitlist(owner, t, NOW))), [[b.c.id, NEXT_MON_7, false, 1]]);
+      assert.deepEqual(must(await h.waitlist(c.u, t, NOW)), []);
+    },
+  },
+  {
+    name: 'joining the waitlist follows the booking rules and stays inside one trainer',
+    async run(h) {
+      const { t, ty, owner } = await setup(h);
+      const other = await setup(h);
+      const a = await client(h, t, 'wr-a@example.com', 5);
+      const b = await client(h, t, 'wr-b@example.com', 5);
+      must(await h.book(a.u, ty, MON_7, NOW));
+      assert.equal(code(await h.joinWaitlist(b.u, ty, MON_7, '2026-10-05T04:00:00.000Z')), 'TOO_SOON');
+      assert.equal(code(await h.joinWaitlist(b.u, ty, MON_7, '2026-09-01T00:00:00.000Z')), 'TOO_FAR');
+      assert.equal(code(await h.joinWaitlist(b.u, ty, '2026-10-05T05:15:00.000Z', NOW)), 'OUTSIDE_HOURS');
+      assert.equal(code(await h.joinWaitlist(b.u, other.ty, MON_7, NOW)), 'NOT_ALLOWED'); // not a client of that trainer
+      assert.equal(code(await h.joinWaitlist(owner, ty, MON_7, NOW)), 'NOT_ALLOWED'); // the trainer books for people, not for themselves
+      assert.equal(code(await h.fullSlots(b.u, other.ty, '2026-10-05', 1, NOW)), 'NOT_ALLOWED');
+      assert.deepEqual(must(await h.waitlist(b.u, other.t, NOW)), []); // another trainer has a list of their own
+      await h.timeOff(t, MON_7, MON_8);
+      assert.equal(code(await h.joinWaitlist(b.u, ty, MON_7, NOW)), 'OUTSIDE_HOURS');
+      assert.deepEqual(must(await h.waitlist(owner, t, NOW)), []);
+    },
+  },
+  {
+    name: 'leaving the waitlist is quiet, and only your own entry goes',
+    async run(h) {
+      const { t, ty, owner } = await setup(h);
+      const a = await client(h, t, 'wv-a@example.com', 5);
+      const b = await client(h, t, 'wv-b@example.com', 5);
+      const c = await client(h, t, 'wv-c@example.com', 5);
+      must(await h.book(a.u, ty, NEXT_MON_7, NOW));
+      must(await h.joinWaitlist(b.u, ty, NEXT_MON_7, NOW));
+      must(await h.joinWaitlist(c.u, ty, NEXT_MON_7, NOW));
+      const [mine] = must(await h.waitlist(b.u, t, NOW));
+      must(await h.leaveWaitlist(c.u, mine.id)); // another client's entry: nothing happens, and no error says it exists
+      assert.equal(must(await h.waitlist(owner, t, NOW)).length, 2);
+      must(await h.leaveWaitlist(b.u, mine.id));
+      must(await h.leaveWaitlist(b.u, mine.id)); // already gone: still fine
+      assert.deepEqual(summary(must(await h.waitlist(owner, t, NOW))), [[c.c.id, NEXT_MON_7, false, 1]]); // c moves up
+    },
+  },
+  {
+    name: 'the waitlist drops entries that no longer mean anything',
+    async run(h) {
+      const { t, ty, owner } = await setup(h);
+      const a = await client(h, t, 'wd-a@example.com', 5);
+      const b = await client(h, t, 'wd-b@example.com', 5);
+      const c = await client(h, t, 'wd-c@example.com', 5);
+      must(await h.book(a.u, ty, NEXT_MON_7, NOW));
+      must(await h.book(a.u, ty, NEXT_MON_8, NOW));
+      must(await h.joinWaitlist(b.u, ty, NEXT_MON_7, NOW));
+      must(await h.joinWaitlist(c.u, ty, NEXT_MON_7, NOW));
+      must(await h.joinWaitlist(b.u, ty, NEXT_MON_8, NOW));
+      assert.equal(must(await h.waitlist(owner, t, NOW)).length, 3);
+      // the first session is over
+      assert.equal(must(await h.waitlist(owner, t, '2026-10-12T05:30:00.000Z')).length, 1);
+      // the trainer takes the second hour off
+      await h.timeOff(t, NEXT_MON_8, '2026-10-12T07:00:00.000Z');
+      assert.deepEqual(summary(must(await h.waitlist(owner, t, NOW))), [[b.c.id, NEXT_MON_7, false, 1], [c.c.id, NEXT_MON_7, false, 2]]);
+    },
+  },
+  {
+    name: 'a place that opens inside the minimum notice is for the trainer to give, not the client to book',
+    async run(h) {
+      const { t, ty, owner } = await setup(h);
+      const a = await client(h, t, 'wn-a@example.com', 5);
+      const b = await client(h, t, 'wn-b@example.com', 5);
+      const held = must(await h.book(a.u, ty, MON_7, NOW));
+      must(await h.joinWaitlist(b.u, ty, MON_7, NOW));
+      must(await h.cancel(a.u, held.id, '2026-10-05T04:00:00.000Z')); // late: it is charged, and the place is free anyway
+      const lastMinute = '2026-10-05T04:30:00.000Z'; // half an hour ahead, the minimum notice is two hours
+      assert.equal(must(await h.waitlist(b.u, t, lastMinute))[0].open, false);
+      assert.equal(must(await h.waitlist(owner, t, lastMinute))[0].open, true);
+      assert.equal(code(await h.book(b.u, ty, MON_7, lastMinute)), 'TOO_SOON');
+      must(await h.bookFor(owner, b.c.id, ty, MON_7));
+      assert.deepEqual(must(await h.waitlist(owner, t, lastMinute)), []); // they hold it now
     },
   },
   {
