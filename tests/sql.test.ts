@@ -206,15 +206,18 @@ test('sql: public wrappers never let a caller choose "now"', async () => {
   const db = await shared;
   const { rows } = await db.query<{ args: string }>(
     `select pg_get_function_identity_arguments(p.oid) as args from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-     where n.nspname = 'public' and p.proname in ('book_session', 'cancel_booking', 'free_slots', 'set_attendance')`,
+     where n.nspname = 'public' and p.proname in ('book_session', 'cancel_booking', 'reschedule_booking', 'free_slots', 'set_attendance')`,
   );
-  assert.equal(rows.length, 4);
+  assert.equal(rows.length, 5);
   for (const r of rows) assert.ok(!r.args.includes('p_now'), r.args);
 
   const can = await db.query<Record<string, boolean>>(`select
     has_function_privilege('anon', 'public.book_session(uuid, timestamptz)', 'execute') as anon_book,
     has_function_privilege('authenticated', 'public.book_session(uuid, timestamptz)', 'execute') as client_book,
     has_function_privilege('authenticated', 'app_private.book(uuid, timestamptz, timestamptz)', 'execute') as client_private,
+    has_function_privilege('anon', 'public.reschedule_booking(uuid, timestamptz)', 'execute') as anon_move,
+    has_function_privilege('authenticated', 'public.reschedule_booking(uuid, timestamptz)', 'execute') as client_move,
+    has_function_privilege('authenticated', 'app_private.reschedule(uuid, timestamptz, timestamptz)', 'execute') as client_move_private,
     has_function_privilege('anon', 'public.trainer_public(text)', 'execute') as anon_public,
     has_function_privilege('authenticated', 'app_private.onboard_trainer(jsonb)', 'execute') as client_onboard,
     has_table_privilege('authenticated', 'public.session_types', 'delete') as client_delete_type`);
@@ -222,6 +225,9 @@ test('sql: public wrappers never let a caller choose "now"', async () => {
     anon_book: false,
     client_book: true,
     client_private: false,
+    anon_move: false,
+    client_move: true,
+    client_move_private: false,
     anon_public: true,
     client_onboard: false,
     client_delete_type: false,
