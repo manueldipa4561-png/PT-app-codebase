@@ -1,8 +1,9 @@
-// The trainer's follow-ups: who to remind, whose pack is about to end, who went quiet. Plain data in, lists out.
+// The trainer's follow-ups: who to remind, whose pack is about to end, who went quiet, who waits for a place that opened.
+// Plain data in, lists out.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dayWord, quietClients, renewals, upcomingReminders, waLink, waNumber } from '../src/followups.ts';
-import type { Booking, BookingStatus, Client, LedgerEntry } from '../src/domain.ts';
+import { dayWord, openSeats, quietClients, renewals, upcomingReminders, waLink, waNumber } from '../src/followups.ts';
+import type { Booking, BookingStatus, Client, LedgerEntry, WaitlistEntry } from '../src/domain.ts';
 
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
@@ -72,6 +73,23 @@ test('reminders: booked sessions in the next 48 hours only, soonest first', () =
     booking('a', NOW + 8 * HOUR, 'late_cancel'), // cancelled
   ];
   assert.deepEqual(upcomingReminders(bookings, clients, NOW).map((r) => r.client.id), ['a', 'b']);
+});
+
+test('open seats: only places that opened, soonest session first and first in line first, never someone who left', () => {
+  const entry = (id: string, clientId: string, startsAt: number, position: number, open: boolean): WaitlistEntry => ({
+    id, trainerId: 'T', clientId, sessionTypeId: 'S', startsAt: iso(startsAt), createdAt: iso(NOW - DAY), open, position,
+  });
+  const clients = [client('a'), client('b'), client('c'), client('gone', { deletedAt: iso(NOW - DAY) })];
+  const waitlist = [
+    entry('w4', 'b', NOW + 3 * DAY, 2, true),
+    entry('w1', 'a', NOW + 3 * DAY, 1, true),
+    entry('w2', 'c', NOW + DAY, 1, true),
+    entry('w3', 'a', NOW + 5 * DAY, 1, false), // the session is still full: nothing to do yet
+    entry('w5', 'gone', NOW + DAY, 2, true),
+    entry('w6', 'a', NOW - HOUR, 1, true), // started already
+    entry('w7', 'nobody', NOW + DAY, 3, true),
+  ];
+  assert.deepEqual(openSeats(waitlist, clients, NOW).map((s) => s.entry.id), ['w2', 'w1', 'w4']);
 });
 
 test('dayWord names today and tomorrow in the trainer calendar, whatever the device zone', () => {

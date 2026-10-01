@@ -131,6 +131,37 @@ function sqlHarness(db: PGlite): Harness {
         await actAs(null);
       }
     },
+    async fullSlots(userId, typeId, from, days, now) {
+      await actAs(userId);
+      try {
+        const { rows } = await db.query<{ starts_at: string }>(`select starts_at from app_private.full_slots($1, $2::date, $3, $4) order by 1`, [typeId, from, days, now]);
+        return { ok: true, value: rows.map((r) => toIso(r.starts_at)) };
+      } catch (e) {
+        return { ok: false, code: String((e as Error).message) };
+      } finally {
+        await actAs(null);
+      }
+    },
+    joinWaitlist: (userId, typeId, startsAt, now) => call(userId, `select app_private.join_waitlist($1, $2, $3)`, [typeId, startsAt, now], () => null),
+    leaveWaitlist: (userId, entryId) => call(userId, `select public.leave_waitlist($1)`, [entryId], () => null),
+    async waitlist(userId, trainerId, now) {
+      await actAs(userId);
+      try {
+        const { rows } = await db.query<Record<string, unknown>>(`select * from app_private.waitlist_entries($1, $2)`, [trainerId, now]);
+        const value = rows.map((r) => ({
+          id: r.id as string,
+          clientId: r.client_id as string,
+          startsAt: toIso(r.starts_at),
+          open: r.open as boolean,
+          position: Number(r.position),
+        }));
+        return { ok: true, value };
+      } catch (e) {
+        return { ok: false, code: String((e as Error).message) };
+      } finally {
+        await actAs(null);
+      }
+    },
     balance: async (clientId) => Number((await one(`select coalesce(sum(delta), 0)::int as n from public.credit_ledger where client_id = $1`, [clientId])).n),
     ledgerCount: async (clientId, reason) =>
       Number((await one(`select count(*)::int as n from public.credit_ledger where client_id = $1 and ($2::text is null or reason = $2)`, [clientId, reason ?? null])).n),
@@ -206,9 +237,10 @@ test('sql: public wrappers never let a caller choose "now"', async () => {
   const db = await shared;
   const { rows } = await db.query<{ args: string }>(
     `select pg_get_function_identity_arguments(p.oid) as args from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-     where n.nspname = 'public' and p.proname in ('book_session', 'cancel_booking', 'reschedule_booking', 'free_slots', 'set_attendance')`,
+     where n.nspname = 'public'
+       and p.proname in ('book_session', 'cancel_booking', 'reschedule_booking', 'free_slots', 'full_slots', 'set_attendance', 'join_waitlist', 'waitlist_entries')`,
   );
-  assert.equal(rows.length, 5);
+  assert.equal(rows.length, 8);
   for (const r of rows) assert.ok(!r.args.includes('p_now'), r.args);
 
   const can = await db.query<Record<string, boolean>>(`select
@@ -218,6 +250,18 @@ test('sql: public wrappers never let a caller choose "now"', async () => {
     has_function_privilege('anon', 'public.reschedule_booking(uuid, timestamptz)', 'execute') as anon_move,
     has_function_privilege('authenticated', 'public.reschedule_booking(uuid, timestamptz)', 'execute') as client_move,
     has_function_privilege('authenticated', 'app_private.reschedule(uuid, timestamptz, timestamptz)', 'execute') as client_move_private,
+    has_function_privilege('anon', 'public.join_waitlist(uuid, timestamptz)', 'execute') as anon_wait,
+    has_function_privilege('authenticated', 'public.join_waitlist(uuid, timestamptz)', 'execute') as client_wait,
+    has_function_privilege('authenticated', 'public.waitlist_entries(uuid)', 'execute') as client_list,
+    has_function_privilege('anon', 'public.waitlist_entries(uuid)', 'execute') as anon_list,
+    has_function_privilege('authenticated', 'public.leave_waitlist(uuid)', 'execute') as client_leave,
+    has_function_privilege('authenticated', 'public.full_slots(uuid, date, int)', 'execute') as client_full,
+    has_function_privilege('authenticated', 'app_private.join_waitlist(uuid, timestamptz, timestamptz)', 'execute') as client_wait_private,
+    has_function_privilege('authenticated', 'app_private.waitlist_entries(uuid, timestamptz)', 'execute') as client_list_private,
+    has_function_privilege('authenticated', 'app_private.full_slots(uuid, date, int, timestamptz)', 'execute') as client_full_private,
+    has_table_privilege('authenticated', 'public.waitlist', 'select') as client_read_waitlist,
+    has_table_privilege('authenticated', 'public.waitlist', 'insert') as client_write_waitlist,
+    has_table_privilege('anon', 'public.waitlist', 'select') as anon_read_waitlist,
     has_function_privilege('anon', 'public.trainer_public(text)', 'execute') as anon_public,
     has_function_privilege('authenticated', 'app_private.onboard_trainer(jsonb)', 'execute') as client_onboard,
     has_table_privilege('authenticated', 'public.session_types', 'delete') as client_delete_type`);
@@ -228,6 +272,18 @@ test('sql: public wrappers never let a caller choose "now"', async () => {
     anon_move: false,
     client_move: true,
     client_move_private: false,
+    anon_wait: false,
+    client_wait: true,
+    client_list: true,
+    anon_list: false,
+    client_leave: true,
+    client_full: true,
+    client_wait_private: false,
+    client_list_private: false,
+    client_full_private: false,
+    client_read_waitlist: false,
+    client_write_waitlist: false,
+    anon_read_waitlist: false,
     anon_public: true,
     client_onboard: false,
     client_delete_type: false,

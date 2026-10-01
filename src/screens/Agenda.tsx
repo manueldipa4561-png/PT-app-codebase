@@ -3,12 +3,13 @@ import { motion } from 'motion/react';
 import { CalendarBlank } from '@phosphor-icons/react';
 import { AppError, cancelOutcome, type Booking } from '../domain.ts';
 import { errorText, fmtTime, useI18n, type Key } from '../i18n.ts';
-import { Button, Empty, Segmented, Sheet, haptic, useApp } from '../ui.tsx';
+import { Button, Empty, Segmented, Sheet, haptic, useApp, useWaitlistActions } from '../ui.tsx';
 import { startMove } from './Book.tsx';
 
 export function Agenda() {
-  const { api, trainer, bookings, types, refresh, toast, navigate } = useApp();
+  const { api, trainer, bookings, types, waitlist, refresh, toast, navigate } = useApp();
   const { t, lang } = useI18n();
+  const spots = useWaitlistActions();
   const [tab, setTab] = useState<'up' | 'past'>('up');
   const [target, setTarget] = useState<Booking | null>(null);
   const [busy, setBusy] = useState(false);
@@ -82,7 +83,7 @@ export function Agenda() {
                     </div>
                   </div>
                   {isUpcoming(b) ? (
-                    <div className="row" style={{ gap: 4 }}>
+                    <div className="item-actions">
                       {canMove(b) && (
                         <Button
                           variant="secondary"
@@ -109,6 +110,43 @@ export function Agenda() {
           </motion.div>
         )}
       </section>
+
+      {tab === 'up' && waitlist.length > 0 && (
+        <section className="pad section">
+          <h2 className="section-title">{t('wl.agenda')}</h2>
+          <div className="list">
+            {waitlist.map((e) => {
+              const d = new Date(e.startsAt);
+              return (
+                <div key={e.id} className={`item${e.open ? ' item-open' : ''}`}>
+                  <div className="item-date">
+                    <b>{new Intl.DateTimeFormat(locale, { timeZone: tz, day: 'numeric' }).format(d)}</b>
+                    <span>{new Intl.DateTimeFormat(locale, { timeZone: tz, month: 'short' }).format(d)}</span>
+                  </div>
+                  <div className="item-main">
+                    <div className="item-title">{types.find((x) => x.id === e.sessionTypeId)?.name}</div>
+                    <div className="item-sub">
+                      {new Intl.DateTimeFormat(locale, { timeZone: tz, weekday: 'long' }).format(d)}, {fmtTime(e.startsAt, tz, lang)}
+                      {' · '}
+                      {e.open ? <b>{t('wl.open')}</b> : t('wl.place', { n: e.position })}
+                    </div>
+                  </div>
+                  <div className={e.open ? 'item-actions' : 'row'}>
+                    {e.open && (
+                      <Button loading={spots.busy === e.id} onClick={() => spots.book(e)}>
+                        {t('wl.book')}
+                      </Button>
+                    )}
+                    <Button variant="ghost" className="btn-quiet" disabled={spots.busy === e.id} onClick={() => spots.leave(e)}>
+                      {t('wl.exit')}
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <Sheet open={!!target} onClose={() => setTarget(null)} title={t('agenda.cancelTitle')}>
         <p style={{ margin: '0 0 20px' }} className={late ? '' : 'muted'}>

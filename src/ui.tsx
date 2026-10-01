@@ -4,9 +4,9 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { AnimatePresence, animate, motion, useDragControls, useReducedMotion } from 'motion/react';
 import { X } from '@phosphor-icons/react';
 import type { Api, Me } from './api.ts';
-import type { Booking, LedgerEntry, Product, SessionType, TrainerPublic } from './domain.ts';
+import { AppError, type Booking, type LedgerEntry, type Product, type SessionType, type TrainerPublic, type WaitlistEntry } from './domain.ts';
 import { initials } from './theme.ts';
-import { useI18n } from './i18n.ts';
+import { errorText, useI18n } from './i18n.ts';
 
 export interface AppState {
   api: Api;
@@ -16,6 +16,8 @@ export interface AppState {
   me: Me;
   bookings: Booking[];
   ledger: LedgerEntry[];
+  /** The client's own waitlist entries, with the ones whose place has opened marked `open`. */
+  waitlist: WaitlistEntry[];
   balance: number;
   dark: boolean; // the look is showing its dark palette right now
   refresh(): Promise<void>;
@@ -29,6 +31,31 @@ export function useApp(): AppState {
   const state = useContext(AppContext);
   if (!state) throw new Error('useApp() used outside <AppContext>');
   return state;
+}
+
+/** What a client does with a waitlist entry, the same on Home and in the Agenda: take a place that opened, or leave the list. */
+export function useWaitlistActions() {
+  const { api, refresh, toast } = useApp();
+  const { t } = useI18n();
+  const [busy, setBusy] = useState<string | null>(null);
+  const run = async (id: string, work: () => Promise<unknown>, done: string) => {
+    setBusy(id);
+    try {
+      await work();
+      haptic(18);
+      toast(done);
+    } catch (e) {
+      toast(errorText(t, e instanceof AppError ? e.code : 'generic'), 'error');
+    } finally {
+      setBusy(null);
+    }
+    await refresh();
+  };
+  return {
+    busy,
+    book: (e: WaitlistEntry) => run(e.id, () => api.book(e.sessionTypeId, e.startsAt), t('book.done')),
+    leave: (e: WaitlistEntry) => run(e.id, () => api.leaveWaitlist(e.id), t('wl.left')),
+  };
 }
 
 /** A short vibration on confirmations (Android). Never on every tap. */

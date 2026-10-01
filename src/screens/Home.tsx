@@ -1,10 +1,10 @@
-import { CalendarPlus, CaretRight, ChatCircleText, Clock, Gift, MapPin, ShoppingBag, UserCircle } from '@phosphor-icons/react';
+import { Bell, CalendarPlus, CaretRight, ChatCircleText, Clock, Gift, MapPin, ShoppingBag, UserCircle } from '@phosphor-icons/react';
 import { motion } from 'motion/react';
 import { HeroGL } from '../HeroGL.tsx';
 import { TEMPLATES } from '../theme.ts';
 import { firstName, googleCalendarUrl, icsEvent, whatsappLink, type Booking, type TrainerPublic } from '../domain.ts';
 import { counted, fmtLongDay, fmtMoney, fmtRelative, fmtTime, greetingKey, useI18n } from '../i18n.ts';
-import { Button, Mark, Ring, useApp } from '../ui.tsx';
+import { Button, Mark, Ring, useApp, useWaitlistActions } from '../ui.tsx';
 
 const rise = (i: number) => ({
   initial: { opacity: 0, y: 18 },
@@ -40,8 +40,9 @@ export function BrandCover({ trainer, dark }: { trainer: TrainerPublic; dark: bo
 }
 
 export function Home() {
-  const { trainer, me, bookings, balance, ledger, types, products, navigate, dark } = useApp();
+  const { trainer, me, bookings, waitlist, balance, ledger, types, products, navigate, dark } = useApp();
   const { t, lang } = useI18n();
+  const spots = useWaitlistActions();
   const now = Date.now();
   const tz = trainer.timezone;
   const coach = firstName(trainer.name);
@@ -57,6 +58,8 @@ export function Home() {
   const lastWord = words.length > 1 ? words.pop() : undefined;
   const cal = next ? calendarLinks(next, `${typeName(next.sessionTypeId)} · ${trainer.name}`, tz) : null;
   const askPack = whatsappLink(trainer.whatsapp, t('home.askPackMsg', { trainer: coach }));
+  // a place that opened in a session they were waiting for: the soonest one, to take in one tap
+  const spot = waitlist.find((e) => e.open);
 
   return (
     <>
@@ -82,6 +85,25 @@ export function Home() {
           {trainer.tagline && <p className="hero-tag">{trainer.tagline}</p>}
         </motion.div>
       </header>
+
+      {spot && (
+        <motion.section className="pad section" {...rise(1)}>
+          <article className="card spot">
+            <p className="card-eyebrow">
+              <Bell size={14} weight="fill" aria-hidden /> {t('wl.open')}
+            </p>
+            <p className="card-title display">
+              {typeName(spot.sessionTypeId)}, {fmtLongDay(spot.startsAt, tz, lang)}, {fmtTime(spot.startsAt, tz, lang)}
+            </p>
+            <p className="muted" style={{ margin: '6px 0 14px' }}>
+              {t('wl.openNote')}
+            </p>
+            <Button loading={spots.busy === spot.id} onClick={() => spots.book(spot)}>
+              {t('wl.bookNow')}
+            </Button>
+          </article>
+        </motion.section>
+      )}
 
       <motion.section className="pad section" {...rise(1)}>
         {next && cal ? (

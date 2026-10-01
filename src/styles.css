@@ -201,6 +201,15 @@ img { display: block; max-width: 100%; }
 .slot small { display: block; font-weight: 500; font-size: 11px; color: var(--muted); }
 .slot[aria-pressed='true'] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .slot[aria-pressed='true'] small { color: inherit; opacity: 0.7; }
+/* a full time: still a button, to join its waitlist; dashed and quiet next to the free ones */
+.slot-full { border-style: dashed; background: transparent; color: var(--muted); }
+.slot-full[aria-pressed='true'] { background: var(--brand-soft); color: var(--brand-text); border-color: var(--brand); border-style: solid; }
+.slot-full[aria-pressed='true'] small { opacity: 1; }
+.slots-hint { margin: 12px 0 0; }
+/* a place that opened in a session the client was waiting for */
+.spot { border: 1px solid var(--brand); background: var(--brand-soft); }
+.spot .card-eyebrow { display: flex; align-items: center; gap: 6px; color: var(--brand-text); }
+.item-open { border-color: var(--brand); background: var(--brand-soft); }
 
 .sticky-cta { position: sticky; bottom: calc(96px + env(safe-area-inset-bottom)); padding: 12px 16px 0; margin-top: 16px; }
 
@@ -225,6 +234,9 @@ img { display: block; max-width: 100%; }
 .item-date b { display: block; font-size: 22px; line-height: 1; font-family: var(--font-display); font-weight: var(--display-weight); font-variant-numeric: lining-nums; }
 .item-date span { display: block; margin-top: 4px; font-size: 12px; color: var(--muted); white-space: nowrap; }
 .item-main { flex: 1; min-width: 0; }
+/* two buttons on a row of their own, under the text: beside it they squeeze the title to nothing on a phone */
+.item:has(.item-actions) { flex-wrap: wrap; }
+.item-actions { flex: 1 0 100%; display: flex; justify-content: flex-end; gap: 4px; margin-top: -4px; }
 .item-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .item-sub { color: var(--muted); font-size: 13px; }
 .badge { display: inline-flex; align-items: center; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--surface-2); color: var(--muted); white-space: nowrap; }

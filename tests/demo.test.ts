@@ -1,7 +1,8 @@
 import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { AppError, type TrainerPublic } from '../src/domain.ts';
 import { createDemoApi } from '../src/demo.ts';
-import { emptyDB, type DemoTrainer } from '../src/seed.ts';
+import { DEMO_USER, buildSeed, emptyDB, type DemoTrainer } from '../src/seed.ts';
 import { scenarios, type Harness, type Result } from './scenarios.ts';
 
 const TRAINER_DEFAULTS: Omit<TrainerPublic, 'id' | 'slug' | 'name'> = {
@@ -81,6 +82,14 @@ function demoHarness(): Harness {
     adjust: (actorId, clientId, delta, opKey) => as(actorId, null, async () => (await api.adjustCredits(clientId, delta, 'test', opKey), null)),
     reverse: (actorId, referralId) => as(actorId, null, async () => (await api.reverseReferral(referralId), null)),
     freeSlots: (userId, typeId, from, days, at) => as(userId, at, async () => (await api.freeSlots(typeId, from, days)).map((s) => s.startsAt)),
+    fullSlots: (userId, typeId, from, days, at) => as(userId, at, async () => (await api.fullSlots(typeId, from, days)).map((s) => s.startsAt)),
+    joinWaitlist: (userId, typeId, startsAt, at) => as(userId, at, async () => (await api.joinWaitlist(typeId, startsAt), null)),
+    leaveWaitlist: (userId, entryId) => as(userId, null, async () => (await api.leaveWaitlist(entryId), null)),
+    waitlist: (userId, trainerId, at) =>
+      as(userId, at, async () => {
+        const list = db.trainers.find((t) => t.id === trainerId)?.ownerUserId === userId ? (await api.trainerData(trainerId)).waitlist : await api.myWaitlist(trainerId);
+        return list.map((e) => ({ id: e.id, clientId: e.clientId, startsAt: e.startsAt, open: e.open, position: e.position }));
+      }),
     balance: async (clientId) => db.ledger.filter((l) => l.clientId === clientId).reduce((s, l) => s + l.delta, 0),
     ledgerCount: async (clientId, reason) => db.ledger.filter((l) => l.clientId === clientId && (!reason || l.reason === reason)).length,
     bookingCount: async (clientId, status, bookedBy) =>
@@ -94,3 +103,45 @@ function demoHarness(): Harness {
 }
 
 for (const s of scenarios) test(`demo: ${s.name}`, () => s.run(demoHarness()));
+
+// The demo is what a trainer is shown: whatever day and hour it is opened, every look has a full session Sara waits for
+// and a place that has just opened, and the trainer's panel lists both.
+test('demo: the waiting list is filled on any day, for the client and for the trainer', async () => {
+  for (let step = 0; step < 12; step++) {
+    const now = Date.parse('2026-10-01T05:00:00.000Z') + step * 15 * 3_600_000 + step * 25 * 60_000; // about a week and a half, every hour of the day
+    const api = createDemoApi({ storage: null, now: () => now, seed: buildSeed });
+    for (const t of api.db().trainers) {
+      const when = `${t.slug} at ${new Date(now).toISOString()}`;
+      api.setActor(DEMO_USER);
+      const mine = await api.myWaitlist(t.id);
+      assert.deepEqual(mine.map((e) => [e.open, e.position]).sort(), [[false, 2], [true, 2]], when);
+      for (const e of mine) assert.ok(Date.parse(e.startsAt) >= now + (t.minNoticeHours + 24) * 3_600_000, when);
+      api.setActor(t.ownerUserId);
+      const all = (await api.trainerData(t.id)).waitlist;
+      assert.equal(all.length, 4, when);
+      assert.equal(all.filter((e) => e.open).length, 2, when);
+      assert.deepEqual(all.map((e) => e.position).sort(), [1, 1, 2, 2], when);
+      // Sara can book the place that opened, and it leaves her list
+      api.setActor(DEMO_USER);
+      const open = mine.find((e) => e.open)!;
+      await api.book(open.sessionTypeId, open.startsAt);
+      assert.equal((await api.myWaitlist(t.id)).length, 1, when);
+    }
+  }
+});
+
+// The brand preview copies a trainer's calendar for a prospect: the waiting list has to come along.
+test('demo: a copied trainer keeps the waiting list', async () => {
+  const now = Date.parse('2026-10-01T09:00:00.000Z');
+  const api = createDemoApi({ storage: null, now: () => now, seed: buildSeed });
+  const marco = api.db().trainers[0];
+  api.cloneTrainer(marco.id, { ...marco, id: 'copy', slug: 'copy', name: 'Copy', ownerUserId: 'owner-copy' });
+  api.setActor(DEMO_USER);
+  const original = await api.myWaitlist(marco.id);
+  const copy = await api.myWaitlist('copy');
+  assert.equal(copy.length, 2);
+  assert.deepEqual(copy.map((e) => [e.startsAt, e.open, e.position]), original.map((e) => [e.startsAt, e.open, e.position]));
+  assert.ok(copy.every((e) => e.trainerId === 'copy' && e.clientId.endsWith('~copy') && e.sessionTypeId.endsWith('~copy')));
+  api.setActor('owner-copy');
+  assert.equal((await api.trainerData('copy')).waitlist.length, 4);
+});

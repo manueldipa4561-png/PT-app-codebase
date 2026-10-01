@@ -21,6 +21,7 @@ How the trainer apps handle personal data. This is Punto Due's working summary, 
 | Packs: credits, price, payment method, date, note | `pack_purchases` | accounting |
 | Credit ledger: every plus and minus, with reason and note | `credit_ledger` | the balance, accounting |
 | Blocked time, with an optional note | `time_off` | the trainer's calendar |
+| Waitlist: which client waits for which full session, and since when | `waitlist` | offering a place that opens |
 | Login: email, sign-up and sign-in times | `auth.users` (Supabase Auth) | the email code login |
 | Trainer: name, contacts, look, booking rules | `trainers` | the app itself |
 | App opens per day: a count, and how many came from the installed app. No user, IP or device | `app_visits` | the trainer's monthly numbers |
@@ -40,6 +41,7 @@ A client who invited a friend sees only the friend's first name and whether the 
 
 - The data stays while the client is active, and after that for the accounting period the trainer's commercialista confirms (in Italy usually 10 years for accounting records, civil code art. 2220).
 - On deletion the client record is **anonymized**. Bookings, packs and the ledger stay, linked to "Deleted client", for accounting.
+- A waitlist entry is only useful until its session. Entries more than a day past are deleted whenever someone joins that trainer's waitlist; until then they are never shown, and an entry of an anonymized client is never shown or used at all.
 
 ## Deletion
 
@@ -87,6 +89,7 @@ select json_build_object(
   'bookings',  (select json_agg(b order by b.starts_at) from public.bookings b, me where b.client_id = me.id),
   'packs',     (select json_agg(p order by p.paid_at) from public.pack_purchases p, me where p.client_id = me.id),
   'ledger',    (select json_agg(l order by l.created_at) from public.credit_ledger l, me where l.client_id = me.id),
+  'waitlist',  (select json_agg(w order by w.starts_at) from public.waitlist w, me where w.client_id = me.id),
   'referrals', (select json_agg(r) from public.referrals r, me where me.id in (r.referrer_client_id, r.referred_client_id))
 ) as export;
 ```

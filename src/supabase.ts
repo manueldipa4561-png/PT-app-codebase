@@ -26,6 +26,7 @@ import {
   type Theme,
   type TimeOff,
   type TrainerPublic,
+  type WaitlistEntry,
 } from './domain.ts';
 import type { Api, ReferralView } from './api.ts';
 
@@ -197,6 +198,17 @@ const toSlot = (r: Row): Slot => ({
   location: strOrNull(r.location),
 });
 
+const toWaitlist = (r: Row): WaitlistEntry => ({
+  id: str(r.id),
+  trainerId: str(r.trainer_id),
+  clientId: str(r.client_id),
+  sessionTypeId: str(r.session_type_id),
+  startsAt: iso(r.starts_at),
+  createdAt: iso(r.created_at),
+  open: r.open === true,
+  position: num(r.position),
+});
+
 // ── errors ──────────────────────────────────────────────────────────────────
 
 /**
@@ -254,6 +266,14 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       if (rows.length < PAGE) return out;
     }
   }
+
+  /** The waiting list the caller may see (the owner everyone's, a client their own), whole, in line order. */
+  const waitlistOf = async (op: string, trainerId: string) =>
+    (
+      await all(op, (a, b) =>
+        sb.rpc('waitlist_entries', { p_trainer: trainerId }).order('starts_at').order('position').order('id').range(a, b),
+      )
+    ).map(toWaitlist);
 
   // RLS shows a trainers row only to its owner.
   const owns = async (op: string, trainerId: string) =>
@@ -372,6 +392,12 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
       );
       return rows.map(toSlot);
     },
+    async fullSlots(sessionTypeId, from, days) {
+      const rows = await all('fullSlots', (a, b) =>
+        sb.rpc('full_slots', { p_session_type: sessionTypeId, p_from: from, p_days: days }).order('starts_at').range(a, b),
+      );
+      return rows.map(toSlot);
+    },
     async book(sessionTypeId, startsAt) {
       return toBooking(await row('book', sb.rpc('book_session', { p_session_type: sessionTypeId, p_starts_at: startsAt })));
     },
@@ -380,6 +406,18 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     },
     async reschedule(bookingId, startsAt) {
       return toBooking(await row('reschedule', sb.rpc('reschedule_booking', { p_booking: bookingId, p_starts_at: startsAt })));
+    },
+    async joinWaitlist(sessionTypeId, startsAt) {
+      await run('joinWaitlist', sb.rpc('join_waitlist', { p_session_type: sessionTypeId, p_starts_at: startsAt }));
+    },
+    async leaveWaitlist(entryId) {
+      await run('leaveWaitlist', sb.rpc('leave_waitlist', { p_entry: entryId }));
+    },
+    async myWaitlist(trainerId) {
+      const c = await myClient('myWaitlist', trainerId);
+      if (!c) return [];
+      // the function shows the owner everyone's entries: a trainer who is also a client still gets only their own here
+      return (await waitlistOf('myWaitlist', trainerId)).filter((e) => e.clientId === c.id);
     },
     async deleteAccount(trainerId) {
       await run('deleteAccount', sb.rpc('delete_my_account', { p_trainer: trainerId }));
@@ -393,7 +431,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
           const q = sb.from(table).select('*').eq('trainer_id', trainerId);
           return (table === 'bookings' ? q.gte('starts_at', since) : q).order(order).order('id').range(from, to);
         });
-      const [owner, clients, bookings, ledger, referrals, packs, timeOff, visits] = await Promise.all([
+      const [owner, clients, bookings, ledger, referrals, packs, timeOff, visits, waitlist] = await Promise.all([
         owns('trainerData', trainerId),
         of('clients', 'created_at'),
         of('bookings', 'starts_at'),
@@ -405,6 +443,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         all('trainerData', (from, to) =>
           sb.from('app_visits').select('*').eq('trainer_id', trainerId).gte('day', since.slice(0, 10)).order('day').range(from, to),
         ),
+        waitlistOf('trainerData', trainerId),
       ]);
       // As in the demo. RLS alone would hand a client their own rows instead.
       if (!owner) throw new AppError('NOT_ALLOWED');
@@ -416,6 +455,7 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         packs: packs.map(toPack),
         timeOff: timeOff.map(toTimeOff),
         visits: visits.map(toVisits),
+        waitlist,
       };
     },
     async addClient(trainerId, input) {

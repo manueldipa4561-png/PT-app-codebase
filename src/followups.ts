@@ -1,7 +1,7 @@
 // What a trainer should do today besides training: remind the people coming soon (late cancels and no-shows are the
 // most common money loss), offer the next pack before the current one runs out, and call back the clients who went
 // quiet. Everything comes from data the trainer panel already has; nothing here talks to a server.
-import { localParts, type Booking, type Client, type LedgerEntry } from './domain.ts';
+import { localParts, type Booking, type Client, type LedgerEntry, type WaitlistEntry } from './domain.ts';
 
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
@@ -20,6 +20,12 @@ export interface Quiet {
 
 export interface Reminder {
   booking: Booking;
+  client: Client;
+}
+
+/** A place has opened in a session this client was waiting for: write to them, first in line first. */
+export interface Seat {
+  entry: WaitlistEntry;
   client: Client;
 }
 
@@ -87,6 +93,17 @@ export function upcomingReminders(bookings: readonly Booking[], clients: readonl
     if (booking.status === 'booked' && at > now && at <= now + hours * HOUR && client && active(client)) out.push({ booking, client });
   }
   return out.sort((a, b) => a.booking.startsAt.localeCompare(b.booking.startsAt));
+}
+
+/** The waiting clients whose place has opened, soonest session first and, within a session, first in line first. */
+export function openSeats(waitlist: readonly WaitlistEntry[], clients: readonly Client[], now: number): Seat[] {
+  const byId = new Map(clients.map((c) => [c.id, c]));
+  const out: Seat[] = [];
+  for (const entry of waitlist) {
+    const client = byId.get(entry.clientId);
+    if (entry.open && Date.parse(entry.startsAt) > now && client && active(client)) out.push({ entry, client });
+  }
+  return out.sort((a, b) => a.entry.startsAt.localeCompare(b.entry.startsAt) || a.entry.position - b.entry.position);
 }
 
 /** "oggi", "domani" or null (the caller then names the weekday) for a session, in the trainer's calendar. */
