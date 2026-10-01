@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion, animate } from 'motion/react';
-import { ArrowUUpLeft, CalendarBlank, DownloadSimple, MagnifyingGlass, Trash, UserPlus } from '@phosphor-icons/react';
+import { ArrowUUpLeft, CalendarBlank, CaretLeft, CaretRight, DownloadSimple, MagnifyingGlass, Trash, UserPlus } from '@phosphor-icons/react';
 import { AppError, PAY_METHODS, balanceOf, localParts, monthStats, zonedToUtc, type Booking, type Client, type PayMethod } from '../domain.ts';
 import type { TrainerData } from '../api.ts';
 import { counted, errorText, fmtDay, fmtMoney, fmtTime, useI18n, type Key } from '../i18n.ts';
 import { InstallApp, isInstalled } from '../install.tsx';
 import { FollowUps } from './FollowUps.tsx';
+import { monthPayments, monthsBack, packRevenue, percentChange, weeklySessions } from '../stats.ts';
+import { quietClients, renewals, upcomingReminders } from '../followups.ts';
 import { Button, Empty, ErrorState, Field, Sheet, Skeleton, haptic, useApp, useLiveRefresh } from '../ui.tsx';
 
 type Tab = 'today' | 'clients' | 'invites' | 'month' | 'blocks';
@@ -19,7 +21,14 @@ function csv(rows: (string | number | null)[][]): string {
     if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
     return `"${s.replace(/"/g, '""')}"`;
   };
-  return rows.map((r) => r.map(cell).join(',')).join('\r\n');
+  return rows.map((r) => r.map(cell).join(';')).join('\r\n'); // semicolon: what Italian spreadsheets expect
+}
+
+/** Hands a CSV to the browser as a file. The BOM makes accents come out right when a spreadsheet opens it. */
+function download(text: string, name: string) {
+  const url = URL.createObjectURL(new Blob(['﻿', text], { type: 'text/csv;charset=utf-8' }));
+  Object.assign(document.createElement('a'), { href: url, download: name }).click();
+  URL.revokeObjectURL(url);
 }
 
 export function Trainer() {
@@ -73,10 +82,7 @@ export function Trainer() {
     for (const c of data.clients.filter((x) => !x.deletedAt)) {
       rows.push([c.name, c.email ?? '', c.phone ?? '', String(balanceOf(data.ledger, c.id)), c.createdAt.slice(0, 10)]);
     }
-    const url = URL.createObjectURL(new Blob([csv(rows)], { type: 'text/csv;charset=utf-8' }));
-    const a = Object.assign(document.createElement('a'), { href: url, download: `clienti-${trainer.slug}.csv` });
-    a.click();
-    URL.revokeObjectURL(url);
+    download(csv(rows), `clienti-${trainer.slug}.csv`);
   }
 
   const tabs: { id: Tab; label: string }[] = [
@@ -257,8 +263,34 @@ function Today({ data, name, typeName, act }: { data: TrainerData; name(id: stri
     </div>
   );
 
+  // The day at a glance: how many sessions, which one is next, and what is waiting to be done.
+  const nextToday = todays.find((b) => Date.parse(b.startsAt) > now);
+  const chips = [
+    { n: upcomingReminders(data.bookings, data.clients, now).length, key: 'tr.sum.remind' as const },
+    { n: renewals(data.clients, data.ledger).length, key: 'tr.sum.renew' as const },
+    { n: quietClients(data.clients, data.bookings, data.ledger, now).length, key: 'tr.sum.quiet' as const },
+  ].filter((c) => c.n > 0);
+
   return (
     <div className="stack">
+      <article className="card card-brand today-sum">
+        <p className="card-eyebrow muted">
+          {new Intl.DateTimeFormat(lang === 'it' ? 'it-IT' : 'en-GB', { timeZone: tz, weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(now))}
+        </p>
+        <p className="next-when display">{todays.length ? t('tr.sum.sessions', { n: counted(t, lang, 'sessions', todays.length) }) : t('tr.sum.none')}</p>
+        {todays.length > 0 && (
+          <p className="today-next">{nextToday ? t('tr.sum.next', { time: fmtTime(nextToday.startsAt, tz, lang), name: name(nextToday.clientId) }) : t('tr.sum.done')}</p>
+        )}
+        {chips.length > 0 && (
+          <div className="sum-chips">
+            {chips.map((c) => (
+              <span key={c.key} className="sum-chip">
+                {t(c.key, { n: c.n })}
+              </span>
+            ))}
+          </div>
+        )}
+      </article>
       {todays.length ? <div className="list">{todays.map((b) => row(b, false))}</div> : <Empty icon={<CalendarBlank size={26} />} title={t('tr.todayEmpty')} />}
       <FollowUps data={data} />
       <h2 className="section-title" style={{ marginTop: 16 }}>
@@ -285,11 +317,56 @@ function CountUp({ value, format }: { value: number; format(v: number): string }
   return <span ref={ref}>{format(value)}</span>;
 }
 
+/** Sessions per week over the last 8 weeks: the rhythm of the business at a glance. */
+function WeeklyBars({ data }: { data: TrainerData }) {
+  const { trainer } = useApp();
+  const { t, lang } = useI18n();
+  const weeks = weeklySessions(data.bookings, Date.now(), trainer.timezone);
+  const max = Math.max(1, ...weeks.map((w) => w.sessions));
+  const label = new Intl.DateTimeFormat(lang === 'it' ? 'it-IT' : 'en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  const when = (start: string) => label.format(new Date(`${start}T12:00:00Z`));
+  return (
+    <article className="card weeks">
+      <p className="card-eyebrow muted">{t('tr.m.weeks')}</p>
+      <div className="bars" role="img" aria-label={weeks.map((w) => `${when(w.start)}: ${w.sessions}`).join(', ')}>
+        {weeks.map((w) => (
+          <div key={w.start} className={`bar${w.current ? ' bar-now' : ''}`}>
+            <span className="bar-n tabular">{w.sessions}</span>
+            <span className="bar-track">
+              <span className="bar-fill" style={{ height: `${Math.max(4, (w.sessions / max) * 100)}%` }} />
+            </span>
+            <span className="bar-l">{when(w.start)}</span>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
 function Month({ data }: { data: TrainerData }) {
   const { trainer } = useApp();
   const { t, lang } = useI18n();
-  const s = monthStats(data, Date.now(), trainer.timezone);
-  const month = new Intl.DateTimeFormat(lang === 'it' ? 'it-IT' : 'en-GB', { timeZone: trainer.timezone, month: 'long', year: 'numeric' }).format(new Date());
+  const tz = trainer.timezone;
+  const [back, setBack] = useState(0); // 0 is this month; the accountant asks for the one before
+  const now = Date.now();
+  const at = monthsBack(now, back, tz);
+  const s = monthStats(data, at, tz);
+  const locale = lang === 'it' ? 'it-IT' : 'en-GB';
+  const monthName = (ms: number) => new Intl.DateTimeFormat(locale, { timeZone: tz, month: 'long' }).format(new Date(ms));
+  const month = new Intl.DateTimeFormat(locale, { timeZone: tz, month: 'long', year: 'numeric' }).format(new Date(at));
+  // This month so far is compared with the same days of the month before; a finished month with the one before it.
+  const day = back === 0 ? Number(localParts(now, tz).date.slice(8)) : null;
+  const previous = monthsBack(now, back + 1, tz);
+  const revenueChange = day !== null && day < 7 ? null : percentChange(s.packRevenueCents, packRevenue(data.packs, previous, tz, day));
+
+  function exportPayments() {
+    const method = (m: string) => t(`method.${m}` as Key);
+    const rows: (string | number | null)[][] = [t('tr.m.csvHead').split(';')];
+    for (const p of monthPayments(data.packs, data.clients, at, tz)) {
+      rows.push([p.date, p.client, p.credits, p.amountCents === null ? '' : (p.amountCents / 100).toFixed(2).replace('.', ','), method(p.method), t(p.voided ? 'tr.m.csvVoid' : 'tr.m.csvOk')]);
+    }
+    download(csv(rows), `incassi-${trainer.slug}-${localParts(at, tz).date.slice(0, 7)}.csv`);
+  }
   const whole = useCallback((v: number) => String(Math.round(v)), []);
   const money = useCallback((v: number) => fmtMoney(Math.round(v), trainer.currency, lang, true), [trainer.currency, lang]);
   const pct = useCallback((v: number) => `${Math.round(v)}%`, []);
@@ -297,7 +374,7 @@ function Month({ data }: { data: TrainerData }) {
     { label: 'tr.m.opens', value: s.opens, format: whole },
     { label: 'tr.m.installed', value: Math.round((s.installedShare ?? 0) * 100), format: pct },
     { label: 'tr.m.sessions', value: s.sessionsDone, format: whole },
-    { label: 'tr.m.upcoming', value: s.upcoming, format: whole },
+    ...(back === 0 ? [{ label: 'tr.m.upcoming' as const, value: s.upcoming, format: whole }] : [{ label: 'tr.m.noShow' as const, value: s.noShows, format: whole }]),
     { label: 'tr.m.self', value: Math.round((s.selfBookedShare ?? 0) * 100), format: pct },
     { label: 'tr.m.newClients', value: s.newClients, format: whole },
     { label: 'tr.m.referral', value: s.viaReferral, format: whole },
@@ -305,23 +382,46 @@ function Month({ data }: { data: TrainerData }) {
   ];
   return (
     <>
-    <h2 className="section-title month-title">{month}</h2>
-    <motion.div className="stats" initial="hidden" animate="show" variants={{ show: { transition: { staggerChildren: 0.05 } } }}>
-      <motion.div className="stat stat-wide" variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}>
-        <div className="stat-value display tabular">
-          <CountUp value={s.packRevenueCents} format={money} />
-        </div>
-        <div className="stat-label">{t('tr.m.revenue')}</div>
-      </motion.div>
-      {tiles.map((x) => (
-        <motion.div key={x.label} className="stat" variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}>
+      <div className="month-nav">
+        <button className="icon-btn" onClick={() => setBack((b) => Math.min(3, b + 1))} disabled={back >= 3} aria-label={t('tr.m.prev')}>
+          <CaretLeft size={20} aria-hidden />
+        </button>
+        <h2 className="section-title month-title">{month}</h2>
+        <button className="icon-btn" onClick={() => setBack((b) => Math.max(0, b - 1))} disabled={back === 0} aria-label={t('tr.m.next')}>
+          <CaretRight size={20} aria-hidden />
+        </button>
+      </div>
+      <motion.div key={back} className="stats" initial="hidden" animate="show" variants={{ show: { transition: { staggerChildren: 0.05 } } }}>
+        <motion.div className="stat stat-wide" variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}>
           <div className="stat-value display tabular">
-            <CountUp value={x.value} format={x.format} />
+            <CountUp value={s.packRevenueCents} format={money} />
           </div>
-          <div className="stat-label">{t(x.label)}</div>
+          <div className="stat-label">{t('tr.m.revenue')}</div>
+          {revenueChange !== null && (
+            <div className="stat-delta">
+              {revenueChange >= 0 ? '+' : '−'}
+              {Math.abs(revenueChange)}% {t(back === 0 ? 'tr.m.vsSame' : 'tr.m.vs', { month: monthName(previous) })}
+            </div>
+          )}
         </motion.div>
-      ))}
-    </motion.div>
+        {tiles.map((x) => (
+          <motion.div key={x.label} className="stat" variants={{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0 } }}>
+            <div className="stat-value display tabular">
+              <CountUp value={x.value} format={x.format} />
+            </div>
+            <div className="stat-label">{t(x.label)}</div>
+          </motion.div>
+        ))}
+      </motion.div>
+      <div className="stack" style={{ marginTop: 14 }}>
+        <WeeklyBars data={data} />
+        <Button variant="secondary" block onClick={exportPayments} icon={<DownloadSimple size={18} aria-hidden />}>
+          {t('tr.m.export')}
+        </Button>
+        <p className="muted" style={{ margin: 0, fontSize: 13, textAlign: 'center' }}>
+          {t('tr.m.exportBody')}
+        </p>
+      </div>
     </>
   );
 }
