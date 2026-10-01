@@ -88,6 +88,9 @@ function sqlHarness(db: PGlite): Harness {
     async timeOff(trainerId, startsAt, endsAt) {
       await db.query(`insert into public.time_off (trainer_id, starts_at, ends_at) values ($1, $2, $3)`, [trainerId, startsAt, endsAt]);
     },
+    async retireType(typeId) {
+      await db.query(`update public.session_types set active = false where id = $1`, [typeId]);
+    },
     async user(email) {
       return (await one<string>(`insert into auth.users (email) values ($1) returning id`, [email])).id;
     },
@@ -106,6 +109,7 @@ function sqlHarness(db: PGlite): Harness {
       call(userId, `select * from app_private.cancel($1, $2)`, [bookingId, now], (r) => ({ status: r.status as string })),
     reschedule: (userId, bookingId, startsAt, now) =>
       call(userId, `select * from app_private.reschedule($1, $2, $3)`, [bookingId, startsAt, now], (r) => ({ id: r.id as string })),
+    deleteAccount: (userId, trainerId) => call(userId, `select public.delete_my_account($1)`, [trainerId], () => null),
     attend: (userId, bookingId, now) =>
       call(userId, `select * from app_private.set_attendance($1, 'attended', $2)`, [bookingId, now], (r) => ({ status: r.status as string })),
     packPaid: (actorId, clientId, credits, opKey) =>
@@ -259,6 +263,8 @@ test('sql: public wrappers never let a caller choose "now"', async () => {
     has_function_privilege('authenticated', 'app_private.join_waitlist(uuid, timestamptz, timestamptz)', 'execute') as client_wait_private,
     has_function_privilege('authenticated', 'app_private.waitlist_entries(uuid, timestamptz)', 'execute') as client_list_private,
     has_function_privilege('authenticated', 'app_private.full_slots(uuid, date, int, timestamptz)', 'execute') as client_full_private,
+    has_function_privilege('authenticated', 'app_private.waitlist_clear_booked()', 'execute') as client_clear_booked,
+    has_function_privilege('anon', 'app_private.waitlist_clear_erased()', 'execute') as anon_clear_erased,
     has_table_privilege('authenticated', 'public.waitlist', 'select') as client_read_waitlist,
     has_table_privilege('authenticated', 'public.waitlist', 'insert') as client_write_waitlist,
     has_table_privilege('anon', 'public.waitlist', 'select') as anon_read_waitlist,
@@ -281,6 +287,8 @@ test('sql: public wrappers never let a caller choose "now"', async () => {
     client_wait_private: false,
     client_list_private: false,
     client_full_private: false,
+    client_clear_booked: false,
+    anon_clear_erased: false,
     client_read_waitlist: false,
     client_write_waitlist: false,
     anon_read_waitlist: false,

@@ -79,8 +79,10 @@ export function Book() {
             }),
       ]);
       if (mine === request.current) {
+        // a booking can land between the two requests: a time is free or full, never both
+        const freeStarts = new Set(free.map((s) => s.startsAt));
         setSlots(free);
-        setFull(taken);
+        setFull(taken.filter((s) => !freeStarts.has(s.startsAt)));
       }
     } catch (e) {
       if (mine === request.current) setError(codeOf(e));
@@ -92,9 +94,11 @@ export function Book() {
     void load();
   }, [load]);
 
-  // free and full times together, in time order; the full ones are what the waitlist is for
+  const waiting = useMemo(() => new Map(waitlist.filter((e) => e.sessionTypeId === typeId).map((e) => [e.startsAt, e])), [waitlist, typeId]);
+  // Free and full times together, in time order; the full ones are what the waitlist is for. A full time the client
+  // waits for that has opened since (the list is refreshed every few seconds) is a free time like any other.
   const byDay = useMemo(() => {
-    const all: Offered[] = [...(slots ?? []).map((s) => ({ ...s, full: false })), ...full.map((s) => ({ ...s, full: true }))];
+    const all: Offered[] = [...(slots ?? []).map((s) => ({ ...s, full: false })), ...full.map((s) => ({ ...s, full: !waiting.get(s.startsAt)?.open }))];
     all.sort((a, b) => a.startsAt.localeCompare(b.startsAt));
     const m = new Map<string, Offered[]>();
     for (const s of all) {
@@ -102,8 +106,7 @@ export function Book() {
       m.set(d, [...(m.get(d) ?? []), s]);
     }
     return m;
-  }, [slots, full, tz]);
-  const waiting = useMemo(() => new Map(waitlist.filter((e) => e.sessionTypeId === typeId).map((e) => [e.startsAt, e])), [waitlist, typeId]);
+  }, [slots, full, waiting, tz]);
 
   // The picked day, or the first day with a free time (else the first with any) once they load.
   const activeDay =
@@ -272,7 +275,7 @@ export function Book() {
                 >
                   <span>
                     {fmtTime(s.startsAt, tz, lang)}
-                    {s.full ? <small>{t(onList ? 'wl.waiting' : 'wl.full')}</small> : type && type.capacity > 1 && <small>{counted(t, lang, 'places', s.placesLeft)}</small>}
+                    {s.full ? <small>{t(onList ? 'wl.waiting' : 'wl.full')}</small> : type && type.capacity > 1 && s.placesLeft > 0 && <small>{counted(t, lang, 'places', s.placesLeft)}</small>}
                   </span>
                 </motion.button>
               );

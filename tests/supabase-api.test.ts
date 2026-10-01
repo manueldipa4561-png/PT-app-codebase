@@ -165,6 +165,9 @@ function adapterHarness(env: Env): Harness {
     async timeOff(trainerId, startsAt, endsAt) {
       await as(owners.get(trainerId)!).addTimeOff(trainerId, startsAt, endsAt);
     },
+    async retireType(typeId) {
+      await env.db.query(`update public.session_types set active = false where id = $1`, [typeId]);
+    },
     user,
     join: (userId, trainerId, referralCode) =>
       run(async () => {
@@ -176,6 +179,7 @@ function adapterHarness(env: Env): Harness {
     bookFor: (ownerId, clientId, typeId, startsAt) => run(async () => ({ id: (await as(ownerId).bookFor(clientId, typeId, startsAt)).id })),
     cancel: (userId, bookingId, now) => run(async () => ({ status: (await as(userId).cancel(bookingId)).status }), now),
     reschedule: (userId, bookingId, startsAt, now) => run(async () => ({ id: (await as(userId).reschedule(bookingId, startsAt)).id }), now),
+    deleteAccount: (userId, trainerId) => run(async () => (await as(userId).deleteAccount(trainerId), null)),
     attend: (userId, bookingId, now) => run(async () => ({ status: (await as(userId).setAttendance(bookingId, 'attended')).status }), now),
     packPaid: (actorId, clientId, credits, opKey) =>
       run(async () => ({ rewarded: (await as(actorId).markPackPaid(clientId, { credits, method: 'cash', opId: uuidOf(opKey) })).rewarded })),

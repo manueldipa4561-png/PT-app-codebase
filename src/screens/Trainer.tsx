@@ -7,7 +7,7 @@ import { counted, errorText, fmtDay, fmtMoney, fmtTime, useI18n, type Key } from
 import { InstallApp, isInstalled } from '../install.tsx';
 import { FollowUps } from './FollowUps.tsx';
 import { monthPayments, monthsBack, packRevenue, percentChange, weeklySessions } from '../stats.ts';
-import { quietClients, renewals, upcomingReminders } from '../followups.ts';
+import { openSeats, quietClients, renewals, upcomingReminders } from '../followups.ts';
 import { Button, Empty, ErrorState, Field, Sheet, Skeleton, haptic, useApp, useLiveRefresh } from '../ui.tsx';
 
 type Tab = 'today' | 'clients' | 'invites' | 'month' | 'blocks';
@@ -266,6 +266,7 @@ function Today({ data, name, typeName, act }: { data: TrainerData; name(id: stri
   // The day at a glance: how many sessions, which one is next, and what is waiting to be done.
   const nextToday = todays.find((b) => Date.parse(b.startsAt) > now);
   const chips = [
+    { n: openSeats(data.waitlist, data.clients, now).length, key: 'tr.sum.seats' as const },
     { n: upcomingReminders(data.bookings, data.clients, now).length, key: 'tr.sum.remind' as const },
     { n: renewals(data.clients, data.ledger).length, key: 'tr.sum.renew' as const },
     { n: quietClients(data.clients, data.bookings, data.ledger, now).length, key: 'tr.sum.quiet' as const },
