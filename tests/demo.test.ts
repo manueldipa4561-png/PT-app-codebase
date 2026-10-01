@@ -61,6 +61,9 @@ function demoHarness(): Harness {
     async timeOff(trainerId, startsAt, endsAt) {
       db.timeOff.push({ id: id('off'), trainerId, startsAt, endsAt, note: null });
     },
+    async retireType(typeId) {
+      db.sessionTypes.find((s) => s.id === typeId)!.active = false;
+    },
     async user(email) {
       const u = { id: id('user'), email };
       db.users.push(u);
@@ -76,6 +79,7 @@ function demoHarness(): Harness {
     bookFor: (ownerId, clientId, typeId, startsAt) => as(ownerId, null, async () => ({ id: (await api.bookFor(clientId, typeId, startsAt)).id })),
     cancel: (userId, bookingId, at) => as(userId, at, async () => ({ status: (await api.cancel(bookingId)).status })),
     reschedule: (userId, bookingId, startsAt, at) => as(userId, at, async () => ({ id: (await api.reschedule(bookingId, startsAt)).id })),
+    deleteAccount: (userId, trainerId) => as(userId, null, async () => (await api.deleteAccount(trainerId), null)),
     attend: (userId, bookingId, at) => as(userId, at, async () => ({ status: (await api.setAttendance(bookingId, 'attended')).status })),
     packPaid: (actorId, clientId, credits, opKey) =>
       as(actorId, null, async () => ({ rewarded: (await api.markPackPaid(clientId, { credits, method: 'cash', opId: opKey })).rewarded })),

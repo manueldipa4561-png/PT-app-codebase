@@ -27,6 +27,8 @@ export interface Harness {
   sessionType(trainerId: string, o: { minutes: number; capacity: number; credits: number }): Promise<string>;
   availability(trainerId: string, weekday: number, start: string, end: string, sessionTypeId?: string): Promise<void>;
   timeOff(trainerId: string, startsAt: string, endsAt: string): Promise<void>;
+  /** The trainer stops offering a session type (it stays in the history). */
+  retireType(typeId: string): Promise<void>;
   user(email: string): Promise<string>;
   join(userId: string, trainerId: string, referralCode?: string): Promise<Result<{ id: string; referralCode: string }>>;
   addClient(ownerId: string, trainerId: string, name: string, email: string): Promise<Result<{ id: string }>>;
@@ -34,6 +36,8 @@ export interface Harness {
   bookFor(ownerId: string, clientId: string, typeId: string, startsAt: string): Promise<Result<{ id: string }>>;
   cancel(userId: string, bookingId: string, now: string): Promise<Result<{ status: string }>>;
   reschedule(userId: string, bookingId: string, startsAt: string, now: string): Promise<Result<{ id: string }>>;
+  /** The client erases their own account at this trainer. */
+  deleteAccount(userId: string, trainerId: string): Promise<Result<null>>;
   attend(userId: string, bookingId: string, now: string): Promise<Result<{ status: string }>>;
   packPaid(actorId: string, clientId: string, credits: number, opKey: string): Promise<Result<{ rewarded: boolean }>>;
   adjust(actorId: string, clientId: string, delta: number, opKey: string): Promise<Result<null>>;
@@ -454,6 +458,47 @@ export const scenarios: Array<{ name: string; run(h: Harness): Promise<void> }> 
       assert.equal(code(await h.book(b.u, ty, MON_7, lastMinute)), 'TOO_SOON');
       must(await h.bookFor(owner, b.c.id, ty, MON_7));
       assert.deepEqual(must(await h.waitlist(owner, t, lastMinute)), []); // they hold it now
+    },
+  },
+  {
+    name: 'booking the time you waited for takes you off the waitlist, also if you give it up later',
+    async run(h) {
+      const { t, ty, owner } = await setup(h);
+      const a = await client(h, t, 'wb-a@example.com', 5);
+      const b = await client(h, t, 'wb-b@example.com', 5);
+      const c = await client(h, t, 'wb-c@example.com', 5);
+      const held7 = must(await h.book(a.u, ty, NEXT_MON_7, NOW));
+      const held8 = must(await h.book(a.u, ty, NEXT_MON_8, NOW));
+      must(await h.joinWaitlist(b.u, ty, NEXT_MON_7, NOW));
+      must(await h.joinWaitlist(c.u, ty, NEXT_MON_8, NOW));
+      must(await h.cancel(a.u, held7.id, NOW));
+      must(await h.cancel(a.u, held8.id, NOW));
+      // b books the place that opened, c is booked into theirs by the trainer; both then change their mind
+      const mine = must(await h.book(b.u, ty, NEXT_MON_7, NOW));
+      const theirs = must(await h.bookFor(owner, c.c.id, ty, NEXT_MON_8));
+      must(await h.cancel(b.u, mine.id, NOW));
+      must(await h.cancel(owner, theirs.id, NOW));
+      // the places are free again, and nobody is listed as waiting for a place they gave up
+      assert.deepEqual(must(await h.waitlist(owner, t, NOW)), []);
+      assert.deepEqual(must(await h.waitlist(b.u, t, NOW)), []);
+    },
+  },
+  {
+    name: 'a retired session type and an erased account leave the waitlist',
+    async run(h) {
+      const { t, ty, owner } = await setup(h);
+      const a = await client(h, t, 'wx-a@example.com', 5);
+      const b = await client(h, t, 'wx-b@example.com', 5);
+      const c = await client(h, t, 'wx-c@example.com', 5);
+      must(await h.book(a.u, ty, NEXT_MON_7, NOW));
+      must(await h.joinWaitlist(b.u, ty, NEXT_MON_7, NOW));
+      must(await h.joinWaitlist(c.u, ty, NEXT_MON_7, NOW));
+      assert.equal(must(await h.waitlist(owner, t, NOW)).length, 2);
+      must(await h.deleteAccount(c.u, t));
+      assert.deepEqual(summary(must(await h.waitlist(owner, t, NOW))), [[b.c.id, NEXT_MON_7, false, 1]]); // b moves up
+      await h.retireType(ty); // nobody can book it any more, so nobody is waiting for it
+      assert.deepEqual(must(await h.waitlist(owner, t, NOW)), []);
+      assert.deepEqual(must(await h.waitlist(b.u, t, NOW)), []);
     },
   },
   {

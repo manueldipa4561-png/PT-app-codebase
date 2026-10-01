@@ -186,11 +186,13 @@ export function createDemoApi(opts: DemoOptions = {}): DemoApi {
     };
     db.bookings.push(b);
     if (st.credits > 0) addLedger({ trainerId: t.id, clientId: c.id, delta: -st.credits, reason: 'booking', bookingId: b.id });
+    // like the SQL: a client who now holds a time is no longer waiting for it, so a later cancel does not bring the entry back
+    db.waitlist = db.waitlist.filter((w) => !(w.clientId === c.id && Date.parse(w.startsAt) === start));
     return b;
   };
-  /** Places left at a start of a session type, or null when it is not offered there (no hours, or time off). */
+  /** Places left at a start of a session type, or null when it is not offered there (no hours, time off, a retired type). */
   const placesAt = (typeId: string, start: number): number | null => {
-    const st = db.sessionTypes.find((s) => s.id === typeId);
+    const st = db.sessionTypes.find((s) => s.id === typeId && s.active); // a retired type cannot be booked: nobody waits for it
     if (!st) return null;
     const t = trainer(st.trainerId);
     const c = candidateSlots({ ...slotInput(t, st), from: localParts(start, t.timezone).date, days: 1 }).find((x) => Date.parse(x.startsAt) === start);
@@ -526,6 +528,7 @@ export function createDemoApi(opts: DemoOptions = {}): DemoApi {
       }
       const user = actor;
       Object.assign(c, { name: 'Deleted client', email: null, phone: null, userId: null, deletedAt: nowIso() });
+      db.waitlist = db.waitlist.filter((w) => w.clientId !== c.id); // an erased client leaves nothing on the list
       // The login is shared by every trainer app: remove it only when nothing uses it.
       if (!db.clients.some((x) => x.userId === user)) db.users = db.users.filter((u) => u.id !== user);
       actor = null;

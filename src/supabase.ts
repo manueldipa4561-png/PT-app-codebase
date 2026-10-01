@@ -443,7 +443,11 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
         all('trainerData', (from, to) =>
           sb.from('app_visits').select('*').eq('trainer_id', trainerId).gte('day', since.slice(0, 10)).order('day').range(from, to),
         ),
-        waitlistOf('trainerData', trainerId),
+        // an extra: if it cannot be read, the trainer's panel still opens (the other lists fail it as a whole)
+        waitlistOf('trainerData', trainerId).catch((e: unknown) => {
+          console.warn('waitlist unavailable', e);
+          return [];
+        }),
       ]);
       // As in the demo. RLS alone would hand a client their own rows instead.
       if (!owner) throw new AppError('NOT_ALLOWED');

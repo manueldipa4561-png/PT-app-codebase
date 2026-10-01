@@ -41,7 +41,7 @@ A client who invited a friend sees only the friend's first name and whether the 
 
 - The data stays while the client is active, and after that for the accounting period the trainer's commercialista confirms (in Italy usually 10 years for accounting records, civil code art. 2220).
 - On deletion the client record is **anonymized**. Bookings, packs and the ledger stay, linked to "Deleted client", for accounting.
-- A waitlist entry is only useful until its session. Entries more than a day past are deleted whenever someone joins that trainer's waitlist; until then they are never shown, and an entry of an anonymized client is never shown or used at all.
+- A waitlist entry is only useful until its session. It is deleted the moment the client books that time or erases their account. Entries more than a day past are deleted whenever someone joins that trainer's waitlist; until then they are never shown.
 
 ## Deletion
 
