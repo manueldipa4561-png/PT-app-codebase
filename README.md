@@ -34,12 +34,15 @@ With no environment variables, the app runs in demo mode: the whole backend runs
 - The data is three invented trainers with about a month of bookings, packs and referrals, generated around today (`src/seed.ts`).
 - You start signed in as Sara Conti, a client. At sign-in, any 6-digit code works.
 - Changes are saved in the browser (localStorage key `pt-demo`) and reset every 12 hours. In private browsing they live in memory and reset on reload.
-- On desktop, a demo panel sits next to the phone-sized app (on a phone, a button opens it). Use it to:
-  - switch trainer,
-  - switch view: client, trainer (the admin at `/admin`), or a signed-out friend opening an invite link,
-  - create a brand live: type a trainer's name, pick a look, colors, a cover photo, a logo and a plan,
-  - copy the go-live SQL: one statement that creates that trainer in Supabase ("Add a trainer" below),
-  - reset the demo data.
+- On desktop, a panel sits next to the phone-sized app (on a phone, a button opens it). It has two faces:
+  - **The preview a trainer sees** (the default, and what a personal preview link opens): "Personalizza". The trainer switches between what their clients see, how they run it and the invite page, picks a look and colors for their own app, sees the monthly price (the offer, then the list price, from `src/offer.ts`) and taps "Voglio la mia app", which opens the form on puntoduestudio.it pre-filled with their choices and the preview link, or WhatsApp to Manuel. It does not show our internal tools.
+  - **Our tools**, with `?studio=1` on the address (it stays for the tab; `?studio=0` turns it off). Use it to:
+    - switch trainer,
+    - switch view: client, trainer (the admin at `/admin`), or a signed-out friend opening an invite link,
+    - create a brand live: type a trainer's name, pick a look, colors, a cover photo, a logo and a plan,
+    - copy the go-live SQL: one statement that creates that trainer in Supabase ("Add a trainer" below),
+    - reset the demo data.
+- A preview link for one person is `/?t=il-tuo-brand&brand=<base64url of the brand JSON>` (see `src/demoBrand.ts`): their name, their town, a look that fits. The contact list for outreach builds one per person.
 
 Demo mode turns off as soon as `VITE_SUPABASE_URL` is set. To run locally against a real project, copy `.env.example` to `.env` and fill in the two `VITE_SUPABASE_` values.
 
@@ -117,7 +120,7 @@ From now on, database changes go out before the frontend. See [docs/RUNBOOK.md](
 
 One SQL statement creates a trainer with everything their app needs. The full onboarding checklist (under an hour) is in [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
-**1. Build it in the demo.** With the trainer, create their brand in the demo panel (name, look, colors, cover, logo, plan), or pick the sample trainer closest to them. Click **Copia SQL di attivazione**. You get a statement like this:
+**1. Build it in the demo.** Open the demo with `?studio=1`. With the trainer, create their brand in the panel (name, look, colors, cover, logo, plan), or pick the sample trainer closest to them. Click **Copia SQL di attivazione**. You get a statement like this:
 
 ```sql
 select app_private.onboard_trainer($json$

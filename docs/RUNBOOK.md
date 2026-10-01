@@ -22,7 +22,7 @@ Before you start: the trainer paid the first month and signed the terms and the 
 
 First send the trainer the form at https://puntoduestudio.it/modulo-trainer: brand, sessions, hours, contacts, contract details, logo and cover photo. No account needed. The answers are in Netlify > puntodue-studio > Forms > trainer (the page lives in the puntodue-studio repo).
 
-1. **Look (10 min).** With the trainer, create their brand in the demo panel: name, look, colors, logo. Click **Copia SQL di attivazione**.
+1. **Look (10 min).** If the trainer filled in the form, their name, look, colors and preview link are in it. Open the demo with `?studio=1` on the address (our tools; the trainer's own preview does not show them), create their brand in the panel: name, look, colors, logo. Click **Copia SQL di attivazione**.
 2. **Files (5 min).** Upload their logo and cover photo to the public Storage bucket. Put the `https://` URLs in the JSON's theme.
 3. **Domain decision (5 min).** A subdomain of our app domain, or their own `app.<their-domain>`. Decide now: moving later signs every client out, and they must reinstall.
 4. **Database (15 min).** Fill in the go-live SQL (slug, the trainer's login email, WhatsApp, their session types, weekly hours, products for the pro and store plans) and run it in the SQL editor. Details: [README](../README.md), "Add a trainer".

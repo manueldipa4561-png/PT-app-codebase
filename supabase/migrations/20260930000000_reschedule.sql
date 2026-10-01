@@ -27,5 +27,8 @@ language sql security definer set search_path = '' as $$
   select * from app_private.reschedule(p_booking, p_starts_at, now())
 $$;
 
+-- The internal function takes "now" as an argument: only the public wrapper may call it, never a client.
+-- Said out loud here because a role that did not run the first migration has other default privileges.
+revoke execute on function app_private.reschedule(uuid, timestamptz, timestamptz) from public, anon, authenticated;
 revoke execute on function public.reschedule_booking(uuid, timestamptz) from public, anon;
 grant execute on function public.reschedule_booking(uuid, timestamptz) to authenticated;

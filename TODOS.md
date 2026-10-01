@@ -23,7 +23,9 @@ Deferred work from the CEO review and the outside review (Codex). Each item says
 
 ### Server booking confirmations and reminders
 - **What:** a Supabase Edge Function that emails booking confirmations, cancellations and reminders through Resend, with the `.ics` attached. A scheduled job (Supabase Cron) sends the reminders, for example 24 hours before.
-- **Why:** in v1 nobody sends booking email. The client only gets "Add to calendar" right after booking. A calendar entry is not a reminder system (outside review #9).
+- **Why:** in v1 nobody sends booking email. The client only gets "Add to calendar" right after booking. A calendar entry is not a reminder system (outside review #9). Late cancels and no-shows are the most common complaint in the research (16 of 29 sources).
+- **Meanwhile:** the trainer's Oggi tab lists the sessions in the next 48 hours with a one-tap WhatsApp reminder already written (`src/screens/FollowUps.tsx`). It needs the trainer to tap; the server job removes that.
+- **Needs:** a Resend API key as a secret of the Edge Function (the SMTP password in Supabase Auth is that key, but it is not readable from here).
 - **Priority:** P1, before the second trainer.
 - **Effort:** M.
 - **Depends on:** Resend, already set up for the login codes. The `.ics` builder exists: `icsEvent()` in `src/domain.ts`.
@@ -46,10 +48,11 @@ Deferred work from the CEO review and the outside review (Codex). Each item says
 
 ### Waitlist that offers freed slots
 - **What:** a client joins the waitlist of a full slot. When someone cancels, the first in line gets an offer with a short time to accept.
-- **Why:** a refilled cancellation is money for the trainer (CEO review, deferred proposal #6).
-- **Priority:** P2.
-- **Effort:** M.
-- **Depends on:** server notifications (email or push).
+- **Why:** a refilled cancellation is money for the trainer (CEO review, deferred proposal #6). Wished for by about 10 sources in the research.
+- **Priority:** P2, the next feature to build.
+- **Effort:** M. A table and two functions in the database, and the booking screen must also show full slots (today `free_slots` returns only free ones).
+- **First step that needs no server:** the trainer's Oggi tab shows "a place freed up: Marco is waiting" with a WhatsApp message already written, like the other follow-ups.
+- **Depends on:** server notifications (email or push) for the automatic offer.
 
 ### Web Push for home-screen installs
 - **What:** push notifications for reminders and waitlist offers in the installed web app. iPhone needs iOS 16.4 or later and the app added to the home screen.
@@ -153,4 +156,9 @@ Deferred work from the CEO review and the outside review (Codex). Each item says
 
 ## Done
 
+- **A preview that sells** (demo site). A trainer who opens a personal link picks look and colors, sees the monthly price (`src/offer.ts`, ends by itself on 4 October 2026, then list price) and taps "Voglio la mia app": the form on puntoduestudio.it arrives pre-filled. Our own tools moved behind `?studio=1`.
+- **Follow-ups in the trainer's Oggi tab.** Sessions to remind in the next 48 hours, packs to renew (2 or fewer sessions left), clients quiet for 14+ days, each with a WhatsApp message already written (`src/followups.ts`, tested). Rows are marked "Scritto" on this device only: not shared between the trainer's devices.
+- **Move a session** ("Sposta" in the Agenda): one atomic step, `reschedule_booking` in the database (migration `20260930000000`), allowed while a free cancellation still is.
+- **Standing weekly slot**: a client books the same time for 2 or 4 weeks in one go. A full week is skipped; no credits stops it.
+- **Month tab**: month switcher, a fair comparison (this month so far against the same days of the month before), sessions per week, and the month's pack payments as a CSV for the accountant.
 - **CSV export in the trainer admin.** Clients with name, email, phone, sessions left and start date (`src/screens/Trainer.tsx`). Bookings, packs and the ledger are not in it: for those, use the SQL export in [docs/RUNBOOK.md](docs/RUNBOOK.md).
