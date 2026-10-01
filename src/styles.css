@@ -242,6 +242,26 @@ img { display: block; max-width: 100%; }
 .app[data-template='energy'] .follow-send { border-radius: 6px; }
 .follow-done .avatar { filter: grayscale(1); opacity: 0.7; }
 
+/* the trainer's day at a glance */
+.today-sum .card-eyebrow::first-letter { text-transform: uppercase; }
+.today-next { margin: 6px 0 0; font-weight: 600; }
+.sum-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 14px; }
+.sum-chip { padding: 5px 11px; border-radius: 999px; font-size: 12px; font-weight: 700; background: color-mix(in srgb, var(--on-brand) 16%, transparent); color: var(--on-brand); }
+.app[data-template='energy'] .sum-chip { border-radius: 6px; }
+.stat-delta { margin-top: 8px; font-size: 12px; font-weight: 700; color: color-mix(in srgb, var(--on-brand) 82%, transparent); }
+
+/* sessions per week, last 8 weeks */
+.weeks { padding: 18px 16px 14px; }
+.bars { display: flex; align-items: stretch; gap: 6px; height: 150px; margin-top: 12px; }
+.bar { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.bar-n { font-size: 12px; font-weight: 700; }
+.bar-track { flex: 1; width: 100%; display: flex; align-items: flex-end; }
+.bar-fill { display: block; width: 100%; border-radius: 8px 8px 4px 4px; background: var(--brand-soft); transform-origin: bottom; animation: bar-grow 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.app[data-template='energy'] .bar-fill { border-radius: 3px; }
+.bar-now .bar-fill { background: var(--brand); }
+.bar-l { font-size: 10px; color: var(--muted); white-space: nowrap; }
+@keyframes bar-grow { from { transform: scaleY(0); } }
+
 /* sessions booked in one go (a standing weekly slot), on the success screen */
 .series { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 8px; text-align: left; font-size: 14px; }
 .series li { display: flex; align-items: center; gap: 8px; }
@@ -431,7 +451,9 @@ img { display: block; max-width: 100%; }
 .app[data-template='energy'] .chip { border-radius: 6px; }
 .chip[aria-pressed='true'] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.month-title { margin-top: 4px; text-transform: capitalize; }
+.month-title { margin: 0; text-transform: capitalize; text-align: center; flex: 1; }
+.month-nav { display: flex; align-items: center; gap: 8px; margin: 4px 0 8px; }
+.month-nav .icon-btn:disabled { opacity: 0.3; }
 
 /* ── invite / sign-up page: the trainer's cover first ──────────────────────── */
 .join-cover { position: relative; height: 230px; margin: calc(12px + env(safe-area-inset-top)) 16px 0; overflow: hidden; border-radius: var(--r-media); background: var(--surface-2); }
