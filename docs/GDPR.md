@@ -22,6 +22,7 @@ How the trainer apps handle personal data. This is Punto Due's working summary, 
 | Credit ledger: every plus and minus, with reason and note | `credit_ledger` | the balance, accounting |
 | Blocked time, with an optional note | `time_off` | the trainer's calendar |
 | Waitlist: which client waits for which full session, and since when | `waitlist` | offering a place that opens |
+| Alerts waiting to go out or already sent: which client, which session, the outcome. No address, no text | `app_private.outbox` | telling the waiting clients that a place opened |
 | Login: email, sign-up and sign-in times | `auth.users` (Supabase Auth) | the email code login |
 | Trainer: name, contacts, look, booking rules | `trainers` | the app itself |
 | App opens per day: a count, and how many came from the installed app. No user, IP or device | `app_visits` | the trainer's monthly numbers |
@@ -41,6 +42,7 @@ A client who invited a friend sees only the friend's first name and whether the 
 
 - The data stays while the client is active, and after that for the accounting period the trainer's commercialista confirms (in Italy usually 10 years for accounting records, civil code art. 2220).
 - On deletion the client record is **anonymized**. Bookings, packs and the ledger stay, linked to "Deleted client", for accounting.
+- An alert row is deleted 30 days after it was queued. The email address and the text are never stored in it: they are read when the alert goes out, so a client who erased their account is skipped.
 - A waitlist entry is only useful until its session. It is deleted the moment the client books that time or erases their account. Entries more than a day past are deleted whenever someone joins that trainer's waitlist; until then they are never shown.
 
 ## Deletion
@@ -108,7 +110,7 @@ List them in the DPA, and tell the trainers before adding a new one.
 |---|---|---|---|
 | Supabase | database, login, file storage | everything above | the project's EU region |
 | Netlify | hosting and the edge function | IP addresses in request logs | US company, global network |
-| Resend (Plus Five Five, Inc.) | sending the login code emails | email address | EU region (Ireland); US company, standard contractual clauses |
+| Resend (Plus Five Five, Inc.) | sending the login code emails and the waitlist alerts | email address, first name, the session | EU region (Ireland); US company, standard contractual clauses |
 | Stripe (shop, pro plan) | payments through the trainer's own Payment Links | payment details, typed on Stripe's page | the trainer's own Stripe account |
 
 Stripe is the trainer's provider, not ours: payments never pass through our app. Name it in the trainer's privacy page anyway.

@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test tests/domain.test.ts tests/demo.test.ts tests/demo-brand.test.ts tests/offer.test.ts tests/followups.test.ts tests/stats.test.ts tests/tenant-head.test.ts",
     "test:sql": "node --test tests/sql.test.ts",
-    "test:api": "node --test tests/supabase-api.test.ts"
+    "test:api": "node --test tests/supabase-api.test.ts",
+    "test:notify": "node --test tests/notify.test.ts"
   },
   "repository": {
     "type": "git",
