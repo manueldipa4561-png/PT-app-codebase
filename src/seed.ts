@@ -51,7 +51,7 @@ export interface DemoDB {
   visits: DayVisits[];
 }
 
-export const DEMO_VERSION = 6;
+export const DEMO_VERSION = 7;
 export const DEMO_USER = 'demo-user';
 export const DEMO_EMAIL = 'sara.conti@example.com';
 export const DEMO_PAYMENT_URL = 'https://buy.stripe.com/demo';
@@ -181,6 +181,9 @@ interface SeedSpec {
   groupType?: string;
   sara: { time: string; past: number[]; upcoming: number[]; packDaysAgo: number; sinceDays: number };
   clients: Array<{ key: string; name: string; login: boolean; since: number }>;
+  /** Two clients the trainer should write to, so the panel's follow-ups show on any day: one nearly out of sessions, one gone quiet. */
+  low: string;
+  quiet: string;
   referrals: Array<{ from: string; to: string; rewarded: boolean }>;
   timeOff: Array<{ weekday: number; start: string; end: string; note: string }>;
 }
@@ -202,6 +205,8 @@ const SPECS: SeedSpec[] = [
       { key: 'giorgio', name: 'Giorgio Fontana', login: false, since: 120 },
       { key: 'alessia', name: 'Alessia Rota', login: true, since: 20 },
     ],
+    low: 'davide',
+    quiet: 'chiara',
     referrals: [
       { from: 'sara', to: 'elena', rewarded: true },
       { from: 'sara', to: 'paolo', rewarded: false },
@@ -224,6 +229,8 @@ const SPECS: SeedSpec[] = [
       { key: 'irene', name: 'Irene Pellegrini', login: true, since: 30 },
       { key: 'silvia', name: 'Silvia Neri', login: false, since: 150 },
     ],
+    low: 'federica',
+    quiet: 'beatrice',
     referrals: [{ from: 'federica', to: 'marta', rewarded: true }],
     timeOff: [],
   },
@@ -243,6 +250,8 @@ const SPECS: SeedSpec[] = [
       { key: 'nicola', name: 'Nicola Barbieri', login: false, since: 200 },
       { key: 'camilla', name: 'Camilla Esposito', login: true, since: 15 },
     ],
+    low: 'andrea',
+    quiet: 'simone',
     referrals: [{ from: 'andrea', to: 'lorenzo', rewarded: false }],
     timeOff: [{ weekday: 3, start: '12:00', end: '14:00', note: 'Formazione' }],
   },
@@ -327,7 +336,7 @@ function seedTrainer(db: DemoDB, spec: SeedSpec, now: number): void {
       userId,
       name,
       email,
-      phone: null,
+      phone: `+39 340 555 ${String(1000 + db.clients.length).slice(-4)}`, // made up, one per client
       referralCode: code,
       termsAcceptedAt: userId ? createdAt : null,
       termsVersion: userId ? t.termsVersion : null,
@@ -455,6 +464,19 @@ function seedTrainer(db: DemoDB, spec: SeedSpec, now: number): void {
     }
   }
 
+  // A few sessions in the next two days, so "who to remind" is never empty in the demo.
+  const soonCount = () => mine().filter((b) => b.status === 'booked' && Date.parse(b.startsAt) > now && Date.parse(b.startsAt) <= now + 48 * HOUR).length;
+  for (let d = 0; d <= 2 && soonCount() < 3; d++) {
+    for (const c of candidatesOn(main, addDays(today, d))) {
+      if (soonCount() >= 3) break;
+      const start = Date.parse(c.startsAt);
+      if (start < now + t.minNoticeHours * HOUR || start > now + 48 * HOUR) continue;
+      const fresh = candidateAt(main, start);
+      const who = nextClient(c.startsAt);
+      if (open(fresh) && who) book(who, main, fresh!, 'client');
+    }
+  }
+
   // Packs and ledger, replayed in time order: a new pack whenever the balance runs out.
   const typeById = new Map(types.map((s) => [s.id, s]));
   const methods: readonly PayMethod[] = ['transfer', 'pos', 'satispay', 'cash'];
@@ -496,5 +518,20 @@ function seedTrainer(db: DemoDB, spec: SeedSpec, now: number): void {
       db.ledger.push({ id: id('lg'), trainerId: t.id, clientId: client.id, delta: -cost, reason: 'booking', bookingId: b.id, createdAt: b.createdAt });
       balance -= cost;
     }
+  }
+
+  // The two follow-up examples. One client was here until about three weeks ago and nothing is booked since.
+  const quiet = clients.get(spec.quiet)!;
+  const quietSince = now - 22 * DAY;
+  const dropped = new Set(db.bookings.filter((b) => b.clientId === quiet.id && Date.parse(b.startsAt) > quietSince).map((b) => b.id));
+  db.bookings = db.bookings.filter((b) => !dropped.has(b.id));
+  db.ledger = db.ledger.filter((l) => !(l.bookingId && dropped.has(l.bookingId)));
+  for (const p of db.packs.filter((x) => x.clientId === quiet.id && Date.parse(x.paidAt) > quietSince)) p.paidAt = iso(quietSince - DAY);
+  for (const l of db.ledger.filter((x) => x.clientId === quiet.id && x.reason === 'pack' && Date.parse(x.createdAt) > quietSince)) l.createdAt = iso(quietSince - DAY);
+  // The other is down to one session: the next pack is due.
+  const low = clients.get(spec.low)!;
+  const left = db.ledger.filter((l) => l.clientId === low.id).reduce((sum, l) => sum + l.delta, 0);
+  if (left > 1) {
+    db.ledger.push({ id: id('lg'), trainerId: t.id, clientId: low.id, delta: 1 - left, reason: 'manual', note: 'Sessioni extra svolte', createdAt: iso(now - 2 * DAY) });
   }
 }

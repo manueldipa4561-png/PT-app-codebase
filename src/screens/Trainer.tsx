@@ -5,6 +5,7 @@ import { AppError, PAY_METHODS, balanceOf, localParts, monthStats, zonedToUtc, t
 import type { TrainerData } from '../api.ts';
 import { counted, errorText, fmtDay, fmtMoney, fmtTime, useI18n, type Key } from '../i18n.ts';
 import { InstallApp, isInstalled } from '../install.tsx';
+import { FollowUps } from './FollowUps.tsx';
 import { Button, Empty, ErrorState, Field, Sheet, Skeleton, haptic, useApp, useLiveRefresh } from '../ui.tsx';
 
 type Tab = 'today' | 'clients' | 'invites' | 'month' | 'blocks';
@@ -259,6 +260,7 @@ function Today({ data, name, typeName, act }: { data: TrainerData; name(id: stri
   return (
     <div className="stack">
       {todays.length ? <div className="list">{todays.map((b) => row(b, false))}</div> : <Empty icon={<CalendarBlank size={26} />} title={t('tr.todayEmpty')} />}
+      <FollowUps data={data} />
       <h2 className="section-title" style={{ marginTop: 16 }}>
         {t('tr.next')}
       </h2>
