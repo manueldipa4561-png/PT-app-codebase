@@ -92,6 +92,7 @@ export interface DemoApi extends Api {
 const STORAGE_KEY = 'pt-demo';
 const RESEED_AFTER = 12 * 3_600_000;
 const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
 const OCCUPYING_OR_DONE = new Set(['booked', 'attended', 'no_show']);
 
 export function createDemoApi(opts: DemoOptions = {}): DemoApi {
@@ -412,6 +413,41 @@ export function createDemoApi(opts: DemoOptions = {}): DemoApi {
       }
       save();
       return { ...b };
+    },
+    async reschedule(bookingId, startsAt) {
+      await wait();
+      const old = db.bookings.find((x) => x.id === bookingId);
+      if (!old) throw new AppError('NOT_FOUND', 'booking');
+      const t = trainer(old.trainerId);
+      const c = myClient(t.id);
+      if (!c || c.id !== old.clientId || old.status !== 'booked' || Date.parse(old.startsAt) <= clock()) throw new AppError('NOT_ALLOWED');
+      // inside the cancel window a move would cost the session, like a cancellation: the client asks the trainer
+      if (Date.parse(old.startsAt) - clock() < t.cancelWindowHours * HOUR) throw new AppError('NOT_ALLOWED');
+      const st = activeType(old.sessionTypeId);
+      const start = parseStart(startsAt);
+      // release the old session first (its credit comes back), book the new one with the usual rules, and
+      // put everything back if that fails: a move never loses the session
+      const before = { status: old.status, cancelledAt: old.cancelledAt, bookings: db.bookings.length, ledger: db.ledger.length };
+      old.status = 'cancelled';
+      old.cancelledAt = nowIso();
+      const charged = -db.ledger.filter((l) => l.bookingId === old.id && l.reason === 'booking').reduce((s, l) => s + l.delta, 0);
+      if (charged > 0) addLedger({ trainerId: t.id, clientId: c.id, delta: charged, reason: 'refund', bookingId: old.id });
+      try {
+        const again = retryOf(c.id, start);
+        if (again) return { ...again };
+        const status = slotStatus({ ...slotInput(t, st), now: clock() }, start);
+        if (status !== 'ok') throw new AppError(status);
+        if (balanceOf(db.ledger, c.id) < st.credits) throw new AppError('NO_CREDITS');
+        const b = createBooking(t, c, st, start, 'client');
+        save();
+        return { ...b };
+      } catch (e) {
+        old.status = before.status;
+        old.cancelledAt = before.cancelledAt;
+        db.bookings.length = before.bookings;
+        db.ledger.length = before.ledger;
+        throw e;
+      }
     },
     async deleteAccount(trainerId) {
       await wait();

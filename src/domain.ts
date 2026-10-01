@@ -248,6 +248,21 @@ export function zonedToUtc(date: string, time: string, tz: string): number | nul
   return back.date === date && back.time === time.slice(0, 5) ? utc : null;
 }
 
+/**
+ * The same weekday and local time for the next `weeks - 1` weeks (a standing weekly slot), as UTC instants.
+ * Local time is kept across a clock change, so 18:30 stays 18:30; a week where that time does not exist
+ * (the hour skipped in spring) is left out.
+ */
+export function weeklyRepeats(startsAt: string, weeks: number, tz: string): string[] {
+  const first = localParts(Date.parse(startsAt), tz);
+  const out: string[] = [];
+  for (let k = 1; k < weeks; k++) {
+    const ms = zonedToUtc(addDays(first.date, 7 * k), first.time, tz);
+    if (ms !== null) out.push(new Date(ms).toISOString());
+  }
+  return out;
+}
+
 const toMinutes = (t: string) => {
   const [h, m] = t.split(':').map(Number);
   return h * 60 + m;

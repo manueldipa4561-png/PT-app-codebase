@@ -104,6 +104,8 @@ function sqlHarness(db: PGlite): Harness {
       call(ownerId, `select * from public.trainer_book($1, $2, $3)`, [clientId, typeId, startsAt], (r) => ({ id: r.id as string })),
     cancel: (userId, bookingId, now) =>
       call(userId, `select * from app_private.cancel($1, $2)`, [bookingId, now], (r) => ({ status: r.status as string })),
+    reschedule: (userId, bookingId, startsAt, now) =>
+      call(userId, `select * from app_private.reschedule($1, $2, $3)`, [bookingId, startsAt, now], (r) => ({ id: r.id as string })),
     attend: (userId, bookingId, now) =>
       call(userId, `select * from app_private.set_attendance($1, 'attended', $2)`, [bookingId, now], (r) => ({ status: r.status as string })),
     packPaid: (actorId, clientId, credits, opKey) =>

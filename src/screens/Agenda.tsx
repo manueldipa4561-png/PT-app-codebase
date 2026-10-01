@@ -4,9 +4,10 @@ import { CalendarBlank } from '@phosphor-icons/react';
 import { AppError, cancelOutcome, type Booking } from '../domain.ts';
 import { errorText, fmtTime, useI18n, type Key } from '../i18n.ts';
 import { Button, Empty, Segmented, Sheet, haptic, useApp } from '../ui.tsx';
+import { startMove } from './Book.tsx';
 
 export function Agenda() {
-  const { api, trainer, bookings, types, refresh, toast } = useApp();
+  const { api, trainer, bookings, types, refresh, toast, navigate } = useApp();
   const { t, lang } = useI18n();
   const [tab, setTab] = useState<'up' | 'past'>('up');
   const [target, setTarget] = useState<Booking | null>(null);
@@ -16,6 +17,11 @@ export function Agenda() {
   const locale = lang === 'it' ? 'it-IT' : 'en-GB';
 
   const isUpcoming = (b: Booking) => b.status === 'booked' && Date.parse(b.startsAt) > now;
+  // A session can be moved on the spot while cancelling it is still free (outside the cancel window).
+  const canMove = (b: Booking) => {
+    const out = cancelOutcome(b, false, now, trainer.cancelWindowHours);
+    return typeof out === 'object' && out.status === 'cancelled';
+  };
   const upcoming = bookings.filter(isUpcoming).sort((a, b) => a.startsAt.localeCompare(b.startsAt));
   const past = bookings.filter((b) => !isUpcoming(b)).sort((a, b) => b.startsAt.localeCompare(a.startsAt));
   const list = tab === 'up' ? upcoming : past;
@@ -76,9 +82,22 @@ export function Agenda() {
                     </div>
                   </div>
                   {isUpcoming(b) ? (
-                    <Button variant="ghost" className="btn-quiet" onClick={() => setTarget(b)}>
-                      {t('agenda.cancel')}
-                    </Button>
+                    <div className="row" style={{ gap: 4 }}>
+                      {canMove(b) && (
+                        <Button
+                          variant="secondary"
+                          onClick={() => {
+                            startMove(b);
+                            navigate('/book');
+                          }}
+                        >
+                          {t('agenda.move')}
+                        </Button>
+                      )}
+                      <Button variant="ghost" className="btn-quiet" onClick={() => setTarget(b)}>
+                        {t('agenda.cancel')}
+                      </Button>
+                    </div>
                   ) : (
                     <span className={`badge${b.status === 'attended' ? ' badge-brand' : b.status === 'late_cancel' || b.status === 'no_show' ? ' badge-warn' : ''}`}>
                       {t(`status.${b.status}` as Key)}

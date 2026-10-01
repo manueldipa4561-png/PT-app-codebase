@@ -74,6 +74,7 @@ function demoHarness(): Harness {
     book: (userId, typeId, startsAt, at) => as(userId, at, async () => ({ id: (await api.book(typeId, startsAt)).id })),
     bookFor: (ownerId, clientId, typeId, startsAt) => as(ownerId, null, async () => ({ id: (await api.bookFor(clientId, typeId, startsAt)).id })),
     cancel: (userId, bookingId, at) => as(userId, at, async () => ({ status: (await api.cancel(bookingId)).status })),
+    reschedule: (userId, bookingId, startsAt, at) => as(userId, at, async () => ({ id: (await api.reschedule(bookingId, startsAt)).id })),
     attend: (userId, bookingId, at) => as(userId, at, async () => ({ status: (await api.setAttendance(bookingId, 'attended')).status })),
     packPaid: (actorId, clientId, credits, opKey) =>
       as(actorId, null, async () => ({ rewarded: (await api.markPackPaid(clientId, { credits, method: 'cash', opId: opKey })).rewarded })),

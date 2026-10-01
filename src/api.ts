@@ -77,6 +77,8 @@ export interface Api {
   freeSlots(sessionTypeId: string, from: string, days: number): Promise<Slot[]>;
   book(sessionTypeId: string, startsAt: string): Promise<Booking>;
   cancel(bookingId: string): Promise<Booking>;
+  /** Moves the client's own session to another slot in one step (a free cancel and a new booking, or nothing). */
+  reschedule(bookingId: string, startsAt: string): Promise<Booking>;
   deleteAccount(trainerId: string): Promise<void>;
 
   trainerData(trainerId: string): Promise<TrainerData>;
