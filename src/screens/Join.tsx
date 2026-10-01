@@ -86,7 +86,7 @@ export function Join({ referralCode }: { referralCode?: string }) {
     <div className="pad join-body">
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ type: 'spring', stiffness: 260, damping: 26 }}>
         <Mark trainer={trainer} size={56} />
-        <h1 className="display" style={{ margin: '20px 0 8px', fontSize: 44 }}>
+        <h1 className="display join-title" style={{ margin: '20px 0 8px', fontSize: 44 }}>
           {t('join.welcome', { trainer: trainer.name })}
         </h1>
         <p className="muted" style={{ margin: 0, maxWidth: '32ch' }}>
