@@ -21,14 +21,14 @@ Deferred work from the CEO review and the outside review (Codex). Each item says
 - **Effort:** S.
 - **Depends on:** nothing.
 
-### Server booking confirmations and reminders
-- **What:** a Supabase Edge Function that emails booking confirmations, cancellations and reminders through Resend, with the `.ics` attached. A scheduled job (Supabase Cron) sends the reminders, for example 24 hours before.
+### Booking confirmations and reminders by email
+- **What:** the sender that already exists for the waitlist alerts (see Done, "Automatic alerts") also emails booking confirmations and cancellations with the `.ics` attached, and reminders, for example 24 hours before.
 - **Why:** in v1 nobody sends booking email. The client only gets "Add to calendar" right after booking. A calendar entry is not a reminder system (outside review #9). Late cancels and no-shows are the most common complaint in the research (16 of 29 sources).
 - **Meanwhile:** the trainer's Oggi tab lists the sessions in the next 48 hours with a one-tap WhatsApp reminder already written (`src/screens/FollowUps.tsx`). It needs the trainer to tap; the server job removes that.
-- **Needs:** a Resend API key as a secret of the Edge Function (the SMTP password in Supabase Auth is that key, but it is not readable from here).
+- **Left to build:** new `kind`s in the outbox and their text in `supabase/functions/notify/email.ts`; for reminders a pg_cron job that queues them (a `dedupe_key` like `reminder:<booking id>` makes it safe to run often); a trainer setting to switch them off.
 - **Priority:** P1, before the second trainer.
-- **Effort:** M.
-- **Depends on:** Resend, already set up for the login codes. The `.ics` builder exists: `icsEvent()` in `src/domain.ts`.
+- **Effort:** S to M: the queue, the sender, the minute job and the Resend setup already exist.
+- **Depends on:** Resend set up (verified domain, API key), as for the waitlist alerts. The `.ics` builder exists: `icsEvent()` in `src/domain.ts`.
 
 ## P2
 
@@ -37,7 +37,7 @@ Deferred work from the CEO review and the outside review (Codex). Each item says
 - **Why:** today the trainer sees changes only when they open the admin. A 7:00 cancel for an 8:00 session goes unnoticed.
 - **Priority:** P2.
 - **Effort:** S, once the confirmations exist.
-- **Depends on:** server booking confirmations.
+- **Depends on:** the sender (see Done, "Automatic alerts"): a new `kind` in the outbox, and a trainer's email to write to (`owner_email`).
 
 ### Calendar feed of the trainer's bookings
 - **What:** a private iCal URL per trainer (a secret token in the link) that Google Calendar or Apple Calendar subscribes to. Read only.
@@ -46,12 +46,11 @@ Deferred work from the CEO review and the outside review (Codex). Each item says
 - **Effort:** M.
 - **Depends on:** an Edge Function that serves the feed, and a token column on `trainers`.
 
-### Waitlist: the automatic offer
-- **What:** when a place opens, the first in line gets a message (email, later push) and the place is held for them for a short time. Nobody else can book it meanwhile.
-- **Why:** the waitlist that exists today (see Done) shows who is waiting and lets the trainer write to them in one tap, but the app says nothing by itself and holds nothing: whoever opens the app first takes the place.
-- **Priority:** P2, after the server confirmations.
-- **Effort:** M. An offer time on the entry, the hold inside `free_slots` and `book`, scenarios for it in both backends, and the sender.
-- **Depends on:** server booking confirmations and reminders (the same sender).
+### Waitlist: hold the place for the first in line
+- **What:** when a place opens, the first in line is told alone and the place is held for them for a short time (say 15 minutes). Then the next one, and so on.
+- **Why:** today every client waiting is emailed at once (see Done, "Automatic alerts") and the first to tap gets the place; the others read about a place that is already gone. Fine for a small studio. A hold is fairer, and it spares the others a pointless alert.
+- **Priority:** P3, when a trainer or their clients complain.
+- **Effort:** M. An offer time on the entry, the hold inside `free_slots` and `book`, scenarios for it in both backends, and a minute job that moves on to the next client.
 
 ### Web Push for home-screen installs
 - **What:** push notifications for reminders and waitlist offers in the installed web app. iPhone needs iOS 16.4 or later and the app added to the home screen.
@@ -155,6 +154,7 @@ Deferred work from the CEO review and the outside review (Codex). Each item says
 
 ## Done
 
+- **Automatic alerts.** When a booking is cancelled, every client waiting for that session gets an email: a place opened up, first to book gets it. The database queues one row per client (`app_private.outbox`, migration `20261001000000`); a minute job (`pg_cron` and `pg_net`) wakes the Edge Function `supabase/functions/notify`, which writes the email in the trainer's language and time zone and sends it through Resend, with the trainer's name as sender and their email as the reply address. It only goes out while the place is still free and bookable, expires after an hour, is sent at most once an hour per client and session, and is retried up to five times. A cancellation never waits for it and never fails because of it. Setup and checks: [docs/RUNBOOK.md](docs/RUNBOOK.md), "Automatic alerts".
 - **Waitlist.** A full time shows as "Pieno" in the booking grid and a client can join its list (free, no session used). When a place opens they see it on Home, one tap to book, and in the Agenda; the trainer sees it in the Oggi tab under "Posti liberi da riempire", first in line first, with the WhatsApp message already written. The list holds nothing: whoever books first has the place. Whether a place is open and who is first is worked out when the list is read, so booking, cancelling and moving never touch it. SQL migration `20260930010000`, the same rules in `src/domain.ts`, six shared scenarios.
 - **A preview that sells** (demo site). A trainer who opens a personal link picks look and colors, sees the monthly price (`src/offer.ts`, ends by itself on 4 October 2026, then list price) and taps "Voglio la mia app": the form on puntoduestudio.it arrives pre-filled. Our own tools moved behind `?studio=1`.
 - **Follow-ups in the trainer's Oggi tab.** Sessions to remind in the next 48 hours, packs to renew (2 or fewer sessions left), clients quiet for 14+ days, each with a WhatsApp message already written (`src/followups.ts`, tested). Rows are marked "Scritto" on this device only: not shared between the trainer's devices.

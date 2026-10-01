@@ -10,6 +10,7 @@ How to run the trainer apps day to day. The SQL below goes in the Supabase SQL e
 Rules:
 - **Migrations are additive only: expand, then contract.** Add new columns and functions first. Remove old ones in a later migration, once no deployed code and no store app uses them.
 - **Never edit a migration that already ran.** Fix forward with a new migration file.
+- **Edge Functions go out after the migration they call:** `npx supabase functions deploy notify --no-verify-jwt`.
 - Run every migration on the staging project first, once it exists ([TODOS.md](../TODOS.md)).
 
 Rollback:
@@ -86,6 +87,34 @@ First send the trainer the form at https://puntoduestudio.it/modulo-trainer: bra
 5. **Store plan:** the trainer removes the apps from sale in App Store Connect and Play Console, and removes Punto Due's access. Delete our copy of their API key.
 6. Stop the subscription invoice.
 
+## Automatic alerts
+
+When a booking is cancelled and clients are waiting for that session, each of them gets an email: a place opened up, first to book gets it. The database decides who to tell and queues one row per client (`app_private.outbox`); an Edge Function (`supabase/functions/notify`) writes the email in the trainer's language and sends it through Resend. The queue holds no address and no text: both are read when the email goes out, so an erased client is never mailed. A cancellation never waits for the email and never fails because of it.
+
+Per Supabase project, once (about 15 minutes, after Resend is connected: README "Go live", step 4):
+
+1. **Resend.** The sending domain is verified (the one the login emails use). If that domain already has a mailbox, give Resend a subdomain such as `mail.<your-domain>`: its records then cannot clash with the mailbox's SPF.
+2. **Function.** Deploy it after the migration: `npx supabase functions deploy notify --no-verify-jwt` (JWT check off: the database's own secret is the check). Then Project Settings > Edge Functions > **Secrets**: add `RESEND_API_KEY` (Resend > API Keys > Create, "Sending access", the verified domain). It is the only secret the function needs.
+3. **Database.** Say where the function lives and which address the emails come from, once:
+   ```sql
+   select app_private.notify_setup('https://<ref>.supabase.co/functions/v1/notify', 'avvisi@<verified domain>');
+   ```
+   A trainer without an address of their own is reached at `<slug>.<base domain>`: add that base domain as a third argument. The call also makes the shared secret (kept in `app_private.settings`, never shown) and can be repeated to change the address.
+
+The migration installs `pg_net` and `pg_cron` and schedules the job `notify-drain`: every minute, if something waits in the queue, it asks the function to send it. To switch alerts off: `select cron.unschedule('notify-drain');`.
+
+What to look at:
+```sql
+-- the queue: pending (waiting or being retried), sent, skipped (no longer worth sending), failed
+select status, count(*), max(created_at) from app_private.outbox group by 1;
+select created_at, status, attempts, last_error from app_private.outbox order by created_at desc limit 20;
+-- the minute job, and what the function answered
+select start_time, status, return_message from cron.job_run_details order by start_time desc limit 5;
+select created, status_code, left(content, 120) from net._http_response order by created desc limit 5;
+```
+
+Rules worth knowing: an alert goes out only while the place is still free and the client can still book it (outside the minimum notice); it expires after an hour; a client is told at most once an hour for the same session; five tries, three minutes apart; rows are kept for 30 days.
+
 ## Incidents
 
 ### The app does not load
@@ -104,6 +133,13 @@ First send the trainer the form at https://puntoduestudio.it/modulo-trainer: bra
 3. **Resend.** Open Emails in Resend: was it sent, delivered, bounced or blocked? The free plan sends 100 emails a day.
 4. **Supabase.** Authentication > Rate Limits: we set 100 emails an hour (the default with custom SMTP is lower). Logs > Auth shows SMTP errors.
 5. **Templates.** Both **Magic link or OTP** and **Confirm sign up** must show `{{ .Token }}`, and Sign In / Providers > Email > **Email OTP length** must be 6 (new projects start at 8). A new client who gets a link instead of a code means Confirm sign up was missed.
+
+### Alerts do not arrive
+
+1. **Is it queued?** Cancel a booking a test client is waiting for, then run the queue query above. Nothing queued: another session overlaps the place, the client has no email, the session is inside the minimum notice, or they are no longer on the list.
+2. **Queued and not going out?** `net._http_response` shows what the function answered. `503` with `RESEND_API_KEY` means the secret is missing; `503` with `notify_setup` that step 3 was skipped; `401` that the secret differs (run `notify_setup` again: it keeps the secret, so this should not happen).
+3. **Failed?** `last_error` holds Resend's answer. `403` or "domain is not verified": the sender address is not on a verified domain. `422`: the address was refused.
+4. **Resend.** Emails in the Resend dashboard shows each message. The free plan sends 100 a day.
 
 ### The trainer signs in but does not see the admin
 

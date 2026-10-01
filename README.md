@@ -56,6 +56,7 @@ Demo mode turns off as soon as `VITE_SUPABASE_URL` is set. To run locally agains
 | `npm run typecheck` | TypeScript check only |
 | `npm test` | The business rules, plus the shared scenarios against the demo backend |
 | `npm run test:sql` | The same scenarios against the real migration, in PGlite (Postgres in WASM, no Docker) |
+| `npm run test:notify` | The automatic alerts: the queue in the database (real migration, PGlite) and the sender in `supabase/functions/notify` with a stand-in for Resend |
 | `npm run test:api` | The production data source (`src/supabase.ts`, through supabase-js) against a local stand-in for Supabase's Auth and Data API running the real migration: the scenarios plus every Api method |
 
 ## Project map

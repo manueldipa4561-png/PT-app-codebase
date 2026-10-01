@@ -22,10 +22,11 @@ const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null 
 const SUPABASE_STUB = `
   create role anon nologin;
   create role authenticated nologin;
+  create role service_role nologin bypassrls;
   create role supabase_auth_admin nologin;
-  alter default privileges in schema public grant all on tables to anon, authenticated;
-  alter default privileges in schema public grant all on functions to anon, authenticated;
-  alter default privileges in schema public grant all on sequences to anon, authenticated;
+  alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
+  alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
+  alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
   create schema auth authorization supabase_auth_admin;
   create table auth.users (
     id uuid primary key default gen_random_uuid(),
@@ -46,7 +47,7 @@ const SUPABASE_STUB = `
       (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')
     )::uuid
   $$;
-  grant usage on schema auth to anon, authenticated;
+  grant usage on schema auth to anon, authenticated, service_role;
 `;
 const MIGRATIONS = new URL('../supabase/migrations/', import.meta.url);
 
@@ -126,6 +127,8 @@ function fromPostgres(e: unknown, role: string): Reply {
 export interface FakeSupabase {
   url: string;
   anonKey: string;
+  /** The project's service_role key: the Edge Function's, which bypasses row level security. */
+  serviceKey: string;
   /** The last sign-in code "emailed" to this address, like reading the local Supabase inbox. */
   codeFor(email: string): string;
   /** Ends every session of a user, as signing out everywhere from another device does. */
@@ -176,6 +179,7 @@ export async function startFakeSupabase(db: PGlite, opts: FakeOptions = {}): Pro
   const emailEveryMs = opts.emailEveryMs ?? 60_000;
   const maxRows = opts.maxRows ?? 1000;
   const anonKey = sign({ iss: 'supabase-demo', role: 'anon', exp: 1983812996 }); // the Supabase CLI's local anon key
+  const serviceKey = sign({ iss: 'supabase-demo', role: 'service_role', exp: 1983812996 }); // and its local service_role key
   const sent = new Map<string, { code: string | null; at: number }>(); // by user id
   const inbox = new Map<string, string>(); // by email
   const sessions = new Map<string, string>(); // session id -> user id
@@ -572,7 +576,9 @@ export async function startFakeSupabase(db: PGlite, opts: FakeOptions = {}): Pro
     const body = Buffer.concat(chunks).toString('utf8');
     const u = new URL(req.url ?? '/', url);
     // the API gateway in front of both services only lets through requests carrying the project's key
-    if (req.headers.apikey !== anonKey) return new Reply(401, { message: req.headers.apikey ? 'Invalid API key' : 'No API key found in request' });
+    if (req.headers.apikey !== anonKey && req.headers.apikey !== serviceKey) {
+      return new Reply(401, { message: req.headers.apikey ? 'Invalid API key' : 'No API key found in request' });
+    }
     if (u.pathname.startsWith('/auth/v1/')) return auth(req, u, body);
     if (u.pathname.startsWith('/rest/v1/')) return rest(req, u, body);
     return new Reply(404, { message: 'no Route matched with those values' });
@@ -591,6 +597,7 @@ export async function startFakeSupabase(db: PGlite, opts: FakeOptions = {}): Pro
   return {
     url,
     anonKey,
+    serviceKey,
     codeFor(email) {
       const code = inbox.get(email.trim().toLowerCase());
       if (!code) throw new Error(`no sign-in code was sent to ${email}`);
