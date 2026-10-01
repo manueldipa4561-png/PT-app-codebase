@@ -378,6 +378,9 @@ export function createSupabaseApi(url: string, anonKey: string): Api {
     async cancel(bookingId) {
       return toBooking(await row('cancel', sb.rpc('cancel_booking', { p_booking: bookingId })));
     },
+    async reschedule(bookingId, startsAt) {
+      return toBooking(await row('reschedule', sb.rpc('reschedule_booking', { p_booking: bookingId, p_starts_at: startsAt })));
+    },
     async deleteAccount(trainerId) {
       await run('deleteAccount', sb.rpc('delete_my_account', { p_trainer: trainerId }));
       await signOutHere('deleteAccount');

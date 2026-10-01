@@ -11,6 +11,7 @@ import {
   localParts,
   monthStats,
   slotStatus,
+  weeklyRepeats,
   whatsappLink,
   zonedToUtc,
   type Availability,
@@ -21,6 +22,17 @@ import { brandTextOn, contrastRatio, readableOn } from '../src/theme.ts';
 
 const TZ = 'Europe/Rome';
 const iso = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString());
+
+test('weeklyRepeats keeps the weekday and the local time, also across the clocks going back', () => {
+  // Thursday 22 October 18:30 in Rome (summer time) and the next three Thursdays; the clocks go back on 25 October
+  assert.deepEqual(weeklyRepeats('2026-10-22T16:30:00.000Z', 4, TZ), ['2026-10-29T17:30:00.000Z', '2026-11-05T17:30:00.000Z', '2026-11-12T17:30:00.000Z']);
+  assert.deepEqual(weeklyRepeats('2026-10-22T16:30:00.000Z', 1, TZ), []);
+});
+
+test('weeklyRepeats leaves out a week where the local time does not exist', () => {
+  // Sunday 21 March 2027 02:30 in Rome exists; a week later (28 March) the clocks skip 02:00-03:00
+  assert.deepEqual(weeklyRepeats('2027-03-21T01:30:00.000Z', 3, TZ), ['2027-04-04T00:30:00.000Z']);
+});
 
 test('zonedToUtc converts Rome wall time in winter and in summer', () => {
   assert.equal(iso(zonedToUtc('2026-01-15', '09:00', TZ)), '2026-01-15T08:00:00.000Z');

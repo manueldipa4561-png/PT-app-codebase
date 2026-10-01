@@ -70,9 +70,9 @@ async function useScenarioClock(db: PGlite) {
       as $$ select coalesce(nullif(current_setting('app_test.now', true), '')::timestamptz, pg_catalog.now()) $$;`);
   const { rows } = await db.query<{ def: string }>(
     `select pg_get_functiondef(p.oid) as def from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-      where n.nspname = 'public' and p.proname in ('free_slots', 'book_session', 'cancel_booking', 'set_attendance')`,
+      where n.nspname = 'public' and p.proname in ('free_slots', 'book_session', 'cancel_booking', 'reschedule_booking', 'set_attendance')`,
   );
-  assert.equal(rows.length, 4);
+  assert.equal(rows.length, 5);
   for (const { def } of rows) {
     const patched = def.replace(/\bnow\(\)/g, 'app_test.now()');
     assert.equal(patched.split('app_test.now()').length, 2, `expected one now() in ${def}`);
@@ -174,6 +174,7 @@ function adapterHarness(env: Env): Harness {
     book: (userId, typeId, startsAt, now) => run(async () => ({ id: (await as(userId).book(typeId, startsAt)).id }), now),
     bookFor: (ownerId, clientId, typeId, startsAt) => run(async () => ({ id: (await as(ownerId).bookFor(clientId, typeId, startsAt)).id })),
     cancel: (userId, bookingId, now) => run(async () => ({ status: (await as(userId).cancel(bookingId)).status }), now),
+    reschedule: (userId, bookingId, startsAt, now) => run(async () => ({ id: (await as(userId).reschedule(bookingId, startsAt)).id }), now),
     attend: (userId, bookingId, now) => run(async () => ({ status: (await as(userId).setAttendance(bookingId, 'attended')).status }), now),
     packPaid: (actorId, clientId, credits, opKey) =>
       run(async () => ({ rewarded: (await as(actorId).markPackPaid(clientId, { credits, method: 'cash', opId: uuidOf(opKey) })).rewarded })),

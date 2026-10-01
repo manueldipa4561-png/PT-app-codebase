@@ -24,6 +24,7 @@ export interface Harness {
   book(userId: string, typeId: string, startsAt: string, now: string): Promise<Result<{ id: string }>>;
   bookFor(ownerId: string, clientId: string, typeId: string, startsAt: string): Promise<Result<{ id: string }>>;
   cancel(userId: string, bookingId: string, now: string): Promise<Result<{ status: string }>>;
+  reschedule(userId: string, bookingId: string, startsAt: string, now: string): Promise<Result<{ id: string }>>;
   attend(userId: string, bookingId: string, now: string): Promise<Result<{ status: string }>>;
   packPaid(actorId: string, clientId: string, credits: number, opKey: string): Promise<Result<{ rewarded: boolean }>>;
   adjust(actorId: string, clientId: string, delta: number, opKey: string): Promise<Result<null>>;
@@ -41,6 +42,9 @@ const NOW = '2026-10-04T12:00:00.000Z';
 const MON_7 = '2026-10-05T05:00:00.000Z';
 const MON_730 = '2026-10-05T05:30:00.000Z';
 const MON_8 = '2026-10-05T06:00:00.000Z';
+// The Monday after, 8 days from NOW: far enough for a free cancellation, so a session there can be moved.
+const NEXT_MON_7 = '2026-10-12T05:00:00.000Z';
+const NEXT_MON_8 = '2026-10-12T06:00:00.000Z';
 
 function must<T>(r: Result<T>): T {
   if (!r.ok) assert.fail(`expected success, got ${r.code}`);
@@ -263,6 +267,63 @@ export const scenarios: Array<{ name: string; run(h: Harness): Promise<void> }> 
       assert.equal(code(await h.attend(u, b.id, '2026-10-05T06:30:00.000Z')), 'NOT_ALLOWED');
       assert.equal(must(await h.attend(owner, b.id, '2026-10-05T06:30:00.000Z')).status, 'attended');
       assert.equal(await h.balance(c.id), 2);
+    },
+  },
+  {
+    name: 'moving a session frees the old slot, takes the new one and keeps the balance',
+    async run(h) {
+      const { t, ty } = await setup(h);
+      const { u, c } = await client(h, t, 'move@example.com', 10);
+      const first = must(await h.book(u, ty, NEXT_MON_7, NOW));
+      assert.equal(await h.balance(c.id), 9);
+      const moved = must(await h.reschedule(u, first.id, NEXT_MON_8, NOW));
+      assert.notEqual(moved.id, first.id);
+      assert.equal(await h.balance(c.id), 9); // the credit came back, then went again
+      assert.equal(await h.bookingCount(c.id, 'booked'), 1);
+      assert.equal(await h.bookingCount(c.id, 'cancelled'), 1);
+      assert.deepEqual(must(await h.freeSlots(u, ty, '2026-10-12', 1, NOW)), [NEXT_MON_7]);
+    },
+  },
+  {
+    name: 'moving to a slot that is taken changes nothing: the old session stays',
+    async run(h) {
+      const { t, ty } = await setup(h);
+      const a = await client(h, t, 'move-a@example.com', 10);
+      const b = await client(h, t, 'move-b@example.com', 10);
+      must(await h.book(b.u, ty, NEXT_MON_8, NOW));
+      const mine = must(await h.book(a.u, ty, NEXT_MON_7, NOW));
+      assert.equal(code(await h.reschedule(a.u, mine.id, NEXT_MON_8, NOW)), 'SLOT_TAKEN');
+      assert.equal(await h.bookingCount(a.c.id, 'booked'), 1);
+      assert.equal(await h.bookingCount(a.c.id, 'cancelled'), 0);
+      assert.equal(await h.balance(a.c.id), 9);
+      assert.equal(await h.ledgerCount(a.c.id, 'refund'), 0);
+    },
+  },
+  {
+    name: 'moving works with the last session left: the old credit comes back first',
+    async run(h) {
+      const { t, ty } = await setup(h);
+      const { u, c } = await client(h, t, 'move-last@example.com', 1);
+      const first = must(await h.book(u, ty, NEXT_MON_7, NOW));
+      assert.equal(await h.balance(c.id), 0);
+      must(await h.reschedule(u, first.id, NEXT_MON_8, NOW));
+      assert.equal(await h.balance(c.id), 0);
+      assert.equal(await h.bookingCount(c.id, 'booked'), 1);
+    },
+  },
+  {
+    name: 'inside the cancel window a move is refused, and nobody moves another client\'s session',
+    async run(h) {
+      const { t, ty } = await setup(h);
+      const a = await client(h, t, 'late-a@example.com', 10);
+      const b = await client(h, t, 'late-b@example.com', 10);
+      const soon = must(await h.book(a.u, ty, MON_7, NOW)); // 17 hours ahead, window is 24
+      assert.equal(code(await h.reschedule(a.u, soon.id, MON_8, NOW)), 'NOT_ALLOWED');
+      assert.equal(await h.bookingCount(a.c.id, 'booked'), 1);
+      assert.equal(await h.balance(a.c.id), 9);
+      const later = must(await h.book(a.u, ty, NEXT_MON_7, NOW));
+      assert.equal(code(await h.reschedule(b.u, later.id, NEXT_MON_8, NOW)), 'NOT_ALLOWED');
+      assert.equal(await h.bookingCount(a.c.id, 'booked'), 2);
     },
   },
   {

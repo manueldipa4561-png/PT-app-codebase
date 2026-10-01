@@ -1,32 +1,57 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { CalendarPlus, CalendarX, ChatCircleText, Check } from '@phosphor-icons/react';
-import { AppError, addDays, firstName, localParts, whatsappLink, type Booking, type Slot } from '../domain.ts';
+import { AppError, addDays, firstName, localParts, weeklyRepeats, whatsappLink, type Booking, type Slot } from '../domain.ts';
 import { counted, errorText, fmtDay, fmtLongDay, fmtTime, useI18n } from '../i18n.ts';
-import { Button, Empty, ErrorState, Sheet, Skeleton, haptic, useApp } from '../ui.tsx';
+import { Button, Empty, ErrorState, Segmented, Sheet, Skeleton, haptic, useApp } from '../ui.tsx';
 import { calendarLinks } from './Home.tsx';
 
 const DAYS = 14;
+const DAY_MS = 86_400_000;
 const codeOf = (e: unknown) => (e instanceof AppError ? e.code : 'generic');
+
+// The Agenda's "Sposta" sets this before opening Book, which reads it once: the session being moved.
+let moving: Booking | null = null;
+export function startMove(b: Booking) {
+  moving = b;
+}
+
+/** What booking a standing weekly slot gave: the sessions booked, and the weeks that could not be. */
+interface Series {
+  booked: Booking[];
+  skipped: { startsAt: string; code: string }[];
+}
 
 export function Book() {
   const { api, trainer, types, balance, refresh, toast } = useApp();
   const { t, lang } = useI18n();
   const tz = trainer.timezone;
   const coach = firstName(trainer.name);
-  const [typeId, setTypeId] = useState(types[0]?.id);
+  const [move] = useState<Booking | null>(() => {
+    const m = moving;
+    moving = null;
+    return m;
+  });
+  const [typeId, setTypeId] = useState(move?.sessionTypeId ?? types[0]?.id);
   const [slots, setSlots] = useState<Slot[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [day, setDay] = useState<string | null>(null);
   const [pick, setPick] = useState<Slot | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<Booking | null>(null);
+  const [done, setDone] = useState<Series | null>(null);
+  const [weeks, setWeeks] = useState(1);
 
   const today = localParts(Date.now(), tz).date;
   const days = useMemo(() => Array.from({ length: DAYS }, (_, i) => addDays(today, i)), [today]);
   const type = types.find((x) => x.id === typeId);
-  const noCredits = (type?.credits ?? 0) > balance;
+  // moving a session gives its credit back first, so it needs none of its own
+  const noCredits = !move && (type?.credits ?? 0) > balance;
+  // a standing weekly slot: 2 or 4 weeks, as far as the credits and the booking horizon reach
+  const weekOptions =
+    pick && !move && type
+      ? [1, 2, 4].filter((n) => (type.credits > 0 ? n * type.credits <= balance : true) && Date.parse(pick.startsAt) + (n - 1) * 7 * DAY_MS <= Date.now() + trainer.bookingHorizonDays * DAY_MS)
+      : [1];
 
   // Switching session type quickly: only the latest request may fill the slots.
   const request = useRef(0);
@@ -64,10 +89,21 @@ export function Book() {
     if (!pick || !typeId) return;
     setBusy(true);
     try {
-      const b = await api.book(typeId, pick.startsAt);
+      const first = move ? await api.reschedule(move.id, pick.startsAt) : await api.book(typeId, pick.startsAt);
+      const series: Series = { booked: [first], skipped: [] };
+      // a standing weekly slot: the same time in the weeks after; a full week is skipped, no credits stops it
+      for (const at of weeks > 1 ? weeklyRepeats(pick.startsAt, weeks, tz) : []) {
+        try {
+          series.booked.push(await api.book(typeId, at));
+        } catch (e) {
+          const c = codeOf(e);
+          series.skipped.push({ startsAt: at, code: c });
+          if (c === 'NO_CREDITS') break;
+        }
+      }
       haptic(18);
       setConfirming(false);
-      setDone(b);
+      setDone(series);
       await refresh();
     } catch (e) {
       const c = codeOf(e);
@@ -81,30 +117,40 @@ export function Book() {
     }
   }
 
-  if (done) return <Success booking={done} typeName={type?.name ?? ''} />;
+  if (done) return <Success series={done} typeName={type?.name ?? ''} moved={!!move} />;
 
   const weekday = (d: string) => new Intl.DateTimeFormat(lang === 'it' ? 'it-IT' : 'en-GB', { weekday: 'short', timeZone: 'UTC' }).format(new Date(`${d}T12:00:00Z`));
   const daySlots = (activeDay && byDay.get(activeDay)) || [];
 
   return (
     <>
-      <h1 className="page-title display">{t('book.title')}</h1>
-      <section className="pad section">
-        <h2 className="section-title">{t('book.type')}</h2>
-        <div className="types">
-          {types.map((ty) => (
-            <button key={ty.id} className="type-card" aria-pressed={ty.id === typeId} onClick={() => setTypeId(ty.id)}>
-              <span className="type-name">{ty.name}</span>
-              <span className="type-meta">{t('book.min', { n: ty.minutes })}</span>
-              {ty.description && <span className="type-desc">{ty.description}</span>}
-              <span className="type-desc">
-                {ty.credits === 0 ? t('book.free') : counted(t, lang, 'sessions', ty.credits)}
-                {ty.capacity > 1 ? `, ${t('book.upTo', { n: ty.capacity }).toLowerCase()}` : ''}
-              </span>
-            </button>
-          ))}
-        </div>
-      </section>
+      <h1 className="page-title display">{t(move ? 'book.moveTitle' : 'book.title')}</h1>
+      {move ? (
+        <section className="pad section">
+          <div className="card card-soft">
+            <p style={{ margin: 0 }}>
+              {t('book.moveBanner', { what: `${type?.name ?? ''}, ${fmtLongDay(move.startsAt, tz, lang)}, ${fmtTime(move.startsAt, tz, lang)}` })}
+            </p>
+          </div>
+        </section>
+      ) : (
+        <section className="pad section">
+          <h2 className="section-title">{t('book.type')}</h2>
+          <div className="types">
+            {types.map((ty) => (
+              <button key={ty.id} className="type-card" aria-pressed={ty.id === typeId} onClick={() => setTypeId(ty.id)}>
+                <span className="type-name">{ty.name}</span>
+                <span className="type-meta">{t('book.min', { n: ty.minutes })}</span>
+                {ty.description && <span className="type-desc">{ty.description}</span>}
+                <span className="type-desc">
+                  {ty.credits === 0 ? t('book.free') : counted(t, lang, 'sessions', ty.credits)}
+                  {ty.capacity > 1 ? `, ${t('book.upTo', { n: ty.capacity }).toLowerCase()}` : ''}
+                </span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {noCredits && (
         <div className="pad section">
@@ -183,7 +229,7 @@ export function Book() {
         )}
       </AnimatePresence>
 
-      <Sheet open={confirming && !!pick} onClose={() => setConfirming(false)} title={t('book.confirmTitle')}>
+      <Sheet open={confirming && !!pick} onClose={() => setConfirming(false)} title={t(move ? 'book.moveTitle' : 'book.confirmTitle')}>
         {pick && type && (
           <>
             <div className="summary">
@@ -192,7 +238,7 @@ export function Book() {
                 <b>{type.name}</b>
               </div>
               <div className="summary-row">
-                <span>{t('book.day')}</span>
+                <span>{t(move ? 'book.moveTo' : 'book.day')}</span>
                 <b>
                   {fmtLongDay(pick.startsAt, tz, lang)}, {fmtTime(pick.startsAt, tz, lang)}
                 </b>
@@ -203,12 +249,35 @@ export function Book() {
                   <b>{pick.location}</b>
                 </div>
               )}
+              {move && (
+                <div className="summary-row">
+                  <span>{t('book.moveNow')}</span>
+                  <b>
+                    {fmtLongDay(move.startsAt, tz, lang)}, {fmtTime(move.startsAt, tz, lang)}
+                  </b>
+                </div>
+              )}
               <div className="summary-row">
                 <span>{t('book.after')}</span>
-                <b>{counted(t, lang, 'left', balance - type.credits)}</b>
+                <b>{counted(t, lang, 'left', move ? balance : balance - type.credits * weeks)}</b>
               </div>
             </div>
-            <p className="policy">{t('book.policy', { h: trainer.cancelWindowHours })}</p>
+            {weekOptions.length > 1 && (
+              <div style={{ margin: '0 0 14px' }}>
+                <p className="section-title" style={{ margin: '0 0 8px' }}>
+                  {t('book.repeat')}
+                </p>
+                <Segmented<string>
+                  id="repeat"
+                  label={t('book.repeat')}
+                  value={String(weeks)}
+                  onChange={(v) => setWeeks(Number(v))}
+                  options={weekOptions.map((n) => ({ value: String(n), label: n === 1 ? t('book.repeatOnce') : t('book.repeatWeeks', { n }) }))}
+                />
+                {weeks > 1 && <p className="policy">{t('book.repeatNote')}</p>}
+              </div>
+            )}
+            <p className="policy">{move ? t('book.moveNote') : t('book.policy', { h: trainer.cancelWindowHours })}</p>
             <Button size="lg" block loading={busy} onClick={confirm}>
               {t('book.confirm')}
             </Button>
@@ -219,10 +288,11 @@ export function Book() {
   );
 }
 
-function Success({ booking, typeName }: { booking: Booking; typeName: string }) {
+function Success({ series, typeName, moved }: { series: Series; typeName: string; moved: boolean }) {
     const { trainer, navigate } = useApp();
     const { t, lang } = useI18n();
     const tz = trainer.timezone;
+    const booking = series.booked[0];
     const cal = calendarLinks(booking, `${typeName} · ${trainer.name}`, tz);
     const pieces = Array.from({ length: 14 }, (_, i) => (i / 14) * Math.PI * 2);
     return (
@@ -242,8 +312,24 @@ function Success({ booking, typeName }: { booking: Booking; typeName: string }) 
             <Check size={52} weight="bold" aria-hidden />
           </motion.span>
         </div>
-        <h2 className="display">{t('book.done')}</h2>
-        <p>{t('book.doneBody', { when: `${fmtLongDay(booking.startsAt, tz, lang)}, ${fmtTime(booking.startsAt, tz, lang)}` })}</p>
+        <h2 className="display">{series.booked.length > 1 ? t('book.seriesTitle', { n: series.booked.length }) : t(moved ? 'book.movedTitle' : 'book.done')}</h2>
+        <p>
+          {t(moved ? 'book.movedBody' : 'book.doneBody', { when: `${fmtLongDay(booking.startsAt, tz, lang)}, ${fmtTime(booking.startsAt, tz, lang)}` })}
+        </p>
+        {(series.booked.length > 1 || series.skipped.length > 0) && (
+          <ul className="series">
+            {series.booked.map((b) => (
+              <li key={b.id}>
+                <Check size={14} weight="bold" aria-hidden /> {fmtLongDay(b.startsAt, tz, lang)}, {fmtTime(b.startsAt, tz, lang)}
+              </li>
+            ))}
+            {series.skipped.map((s) => (
+              <li key={s.startsAt} className="series-skipped">
+                <CalendarX size={14} aria-hidden /> {fmtLongDay(s.startsAt, tz, lang)}: {s.code === 'NO_CREDITS' ? errorText(t, 'NO_CREDITS') : t('book.seriesSkipped')}
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="card-actions" style={{ justifyContent: 'center' }}>
           <a className="btn btn-secondary" href={cal.ics} download="sessione.ics">
             <CalendarPlus size={18} aria-hidden /> {t('home.addCal')}
