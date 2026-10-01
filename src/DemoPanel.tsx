@@ -1,13 +1,14 @@
 // The sales demo around the phone: switch trainer, switch client / trainer view, and build a
 // trainer's brand live while they watch ("the list to choose from"). Demo mode only.
 import { useEffect, useState, type ChangeEvent } from 'react';
-import { ArrowCounterClockwise, Check, Copy, Palette, SlidersHorizontal, UploadSimple, X } from '@phosphor-icons/react';
+import { ArrowCounterClockwise, ArrowRight, ChatCircleText, Check, Copy, Palette, SlidersHorizontal, UploadSimple, X } from '@phosphor-icons/react';
 import type { DemoApi } from './demo.ts';
 import { COVER_CHOICES, DEMO_USER, PHOTOS, type DemoDB, type DemoTrainer } from './seed.ts';
 import { TEMPLATE_LIST } from './theme.ts';
 import type { Plan } from './domain.ts';
 import { translator, type Key } from './i18n.ts';
 import { CUSTOM_SLUG, brandParam, type BrandPatch } from './demoBrand.ts';
+import { formLink, monthlyPrice, whatsappLink } from './offer.ts';
 
 const CUSTOM_ID = 'tr-custom';
 const DATA_FROM = 'tr-marco'; // the preview reuses a full calendar, clients and shop
@@ -88,11 +89,64 @@ function go(path: string) {
   window.dispatchEvent(new PopStateEvent('popstate'));
 }
 
+/**
+ * Who is looking. A trainer who opens a preview link sees the sales panel (style, colors, price, "I want it").
+ * Punto Due's own tools (sample trainers, activation SQL, reset) show with ?studio=1, and stay on for the tab.
+ */
+function studioMode(): boolean {
+  try {
+    const q = new URLSearchParams(location.search).get('studio');
+    if (q === '1') sessionStorage.setItem('pt-studio', '1');
+    if (q === '0') sessionStorage.removeItem('pt-studio');
+    return sessionStorage.getItem('pt-studio') === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** The preview as the trainer would send it on: this address without our own switches. */
+function previewLink(): string {
+  const url = new URL(location.href);
+  url.searchParams.delete('studio');
+  return url.toString();
+}
+
+const HINT_KEY = 'pt-preview-hint';
+const seenHint = () => {
+  try {
+    return sessionStorage.getItem(HINT_KEY) === '1';
+  } catch {
+    return true;
+  }
+};
+
 export function DemoPanel({ api, current, onPick, onChange }: { api: DemoApi; current: string; onPick(slug: string): void; onChange(): void }) {
   const [, rerender] = useState(0);
   const [narrow, setNarrow] = useState(() => matchMedia('(max-width: 959px)').matches);
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [studio] = useState(studioMode);
+  const [hint, setHint] = useState(false);
+
+  // A trainer arriving from a link gets one nudge toward the panel they will use every day.
+  useEffect(() => {
+    if (studio || seenHint()) return;
+    const show = window.setTimeout(() => setHint(true), 3500);
+    const hide = window.setTimeout(() => setHint(false), 18_000);
+    return () => {
+      window.clearTimeout(show);
+      window.clearTimeout(hide);
+    };
+  }, [studio]);
+
+  function dismissHint() {
+    setHint(false);
+    try {
+      sessionStorage.setItem(HINT_KEY, '1');
+    } catch {
+      /* private mode: the nudge may come back on a reload, nothing else */
+    }
+  }
 
   useEffect(() => {
     const m = matchMedia('(max-width: 959px)');
@@ -173,9 +227,9 @@ export function DemoPanel({ api, current, onPick, onChange }: { api: DemoApi; cu
 
   const editing = custom && cur.id === CUSTOM_ID ? custom : null;
   const panel = (
-    <aside className="panel" aria-label={t('demo.title')}>
+    <aside className="panel" aria-label={studio ? t('demo.title') : t(editing ? 'demo.pTitleCustom' : 'demo.pTitleSample')}>
       <div className="row">
-        <h1>{t('demo.title')}</h1>
+        <h1>{studio ? t('demo.title') : t(editing ? 'demo.pTitleCustom' : 'demo.pTitleSample')}</h1>
         <span className="spacer" />
         {narrow && (
           <button className="panel-btn" onClick={() => setOpen(false)} aria-label={t('common.close')}>
@@ -183,32 +237,38 @@ export function DemoPanel({ api, current, onPick, onChange }: { api: DemoApi; cu
           </button>
         )}
       </div>
-      <p>{t('demo.lead')}</p>
+      <p>{studio ? t('demo.lead') : t(editing ? 'demo.pLeadCustom' : 'demo.pLeadSample')}</p>
 
-      <h2>{t('demo.trainers')}</h2>
-      {db.trainers.map((x) => (
-        <button key={x.id} className="trainer-pick" aria-pressed={x.id === cur.id} onClick={() => pick(x.slug)}>
-          <span className="swatch" style={{ background: x.theme.brand }} aria-hidden />
-          <span>
-            {x.name}
-            <small>
-              {TEMPLATE_LIST.find((s) => s.id === x.template)?.label}, {t(`plan.${x.plan}` as Key)}
-            </small>
-          </span>
-          {x.id === cur.id && <Check size={18} weight="bold" aria-hidden />}
-        </button>
-      ))}
+      {(studio || !editing) && (
+        <>
+          <h2>{t('demo.trainers')}</h2>
+          {db.trainers.map((x) => (
+            <button key={x.id} className="trainer-pick" aria-pressed={x.id === cur.id} onClick={() => pick(x.slug)}>
+              <span className="swatch" style={{ background: x.theme.brand }} aria-hidden />
+              <span>
+                {x.name}
+                <small>
+                  {TEMPLATE_LIST.find((s) => s.id === x.template)?.label}, {t(`plan.${x.plan}` as Key)}
+                </small>
+              </span>
+              {x.id === cur.id && <Check size={18} weight="bold" aria-hidden />}
+            </button>
+          ))}
+        </>
+      )}
 
       <h2>{t('demo.view')}</h2>
       <div className="panel-row">
         {(['client', 'trainer', 'invite'] as const).map((v) => (
           <button key={v} className="panel-btn" aria-pressed={view === v} onClick={() => setView(v)}>
-            {v === 'client' ? t('demo.client') : v === 'trainer' ? t('demo.trainer') : t('demo.invite')}
+            {studio
+              ? v === 'client' ? t('demo.client') : v === 'trainer' ? t('demo.trainer') : t('demo.invite')
+              : v === 'client' ? t('demo.pClient') : v === 'trainer' ? t('demo.pTrainer') : t('demo.pInvite')}
           </button>
         ))}
       </div>
 
-      <h2>{t('demo.brandTitle')}</h2>
+      <h2>{studio || !editing ? t('demo.brandTitle') : t('demo.pStyle')}</h2>
       {!editing ? (
         <button className="panel-btn" onClick={() => edit({})}>
           <Palette size={16} aria-hidden /> {t('demo.create')}
@@ -285,42 +345,81 @@ export function DemoPanel({ api, current, onPick, onChange }: { api: DemoApi; cu
               </button>
             )}
           </div>
-          <div className="field">
-            <span className="field-label">{t('demo.plan')}</span>
-            <div className="panel-row">
-              {(['web', 'pro', 'store'] as Plan[]).map((p) => (
-                <button key={p} className="panel-btn" aria-pressed={editing.plan === p} onClick={() => edit({ plan: p })}>
-                  {t(`plan.${p}` as Key)}
-                </button>
-              ))}
+          {studio && (
+            <div className="field">
+              <span className="field-label">{t('demo.plan')}</span>
+              <div className="panel-row">
+                {(['web', 'pro', 'store'] as Plan[]).map((p) => (
+                  <button key={p} className="panel-btn" aria-pressed={editing.plan === p} onClick={() => edit({ plan: p })}>
+                    {t(`plan.${p}` as Key)}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
-      <div className="panel-row panel-foot">
-        <button className="panel-btn" onClick={copyGoLive}>
-          <Copy size={16} aria-hidden /> {copied ? t('demo.copied') : t('demo.copyJson')}
-        </button>
-        <button
-          className="panel-btn"
-          onClick={() => {
-            api.reset();
-            pick('marco-bellini');
-          }}
-        >
-          <ArrowCounterClockwise size={16} aria-hidden /> {t('demo.reset')}
-        </button>
-      </div>
+      {studio ? (
+        <div className="panel-row panel-foot">
+          <button className="panel-btn" onClick={copyGoLive}>
+            <Copy size={16} aria-hidden /> {copied ? t('demo.copied') : t('demo.copyJson')}
+          </button>
+          <button
+            className="panel-btn"
+            onClick={() => {
+              api.reset();
+              pick('marco-bellini');
+            }}
+          >
+            <ArrowCounterClockwise size={16} aria-hidden /> {t('demo.reset')}
+          </button>
+        </div>
+      ) : (
+        <Offer
+          plan={cur.plan}
+          editable={!!editing}
+          onPlan={(p) => edit({ plan: p })}
+          cta={formLink({ name: cur.name, template: cur.template, plan: cur.plan, colors: `${cur.theme.brand}, ${cur.theme.accent ?? cur.theme.brand}` }, previewLink())}
+          wa={whatsappLink(cur.name)}
+        />
+      )}
     </aside>
   );
 
   if (!narrow) return panel;
   return (
     <>
-      <button className="demo-fab" onClick={() => setOpen(true)} aria-label={t('demo.openLabel')} aria-expanded={open}>
+      {hint && !open && (
+        <div className="demo-hint" role="status">
+          <p>{t('demo.pHint')}</p>
+          <div className="panel-row">
+            <button
+              className="panel-btn panel-btn-solid"
+              onClick={() => {
+                dismissHint();
+                setView('trainer');
+              }}
+            >
+              {t('demo.pHintGo')} <ArrowRight size={16} weight="bold" aria-hidden />
+            </button>
+            <button className="panel-btn" onClick={dismissHint}>
+              {t('demo.pHintClose')}
+            </button>
+          </div>
+        </div>
+      )}
+      <button
+        className={`demo-fab${hint ? ' demo-fab-hint' : ''}`}
+        onClick={() => {
+          dismissHint();
+          setOpen(true);
+        }}
+        aria-label={t('demo.openLabel')}
+        aria-expanded={open}
+      >
         <SlidersHorizontal size={16} weight="bold" aria-hidden />
-        {t('demo.open')}
+        {t(studio ? 'demo.open' : 'demo.pOpen')}
       </button>
       {open && (
         <div className="demo-overlay" role="dialog" aria-modal="true" aria-label={t('demo.title')} onClick={(e) => e.target === e.currentTarget && setOpen(false)}>
@@ -328,5 +427,41 @@ export function DemoPanel({ api, current, onPick, onChange }: { api: DemoApi; cu
         </div>
       )}
     </>
+  );
+}
+
+/** What it costs and how to say yes: the plan, the monthly price (offer or list), and the two ways to reach Punto Due. */
+function Offer({ plan, editable, onPlan, cta, wa }: { plan: Plan; editable: boolean; onPlan(p: Plan): void; cta: string; wa: string }) {
+  const { price, was, daysLeft } = monthlyPrice(plan);
+  return (
+    <section className="offer" aria-label={t('demo.pPlan')}>
+      {editable && (
+        <div className="panel-row" role="group" aria-label={t('demo.pPlan')}>
+          {(['web', 'pro', 'store'] as Plan[]).map((p) => (
+            <button key={p} className="panel-btn" aria-pressed={plan === p} onClick={() => onPlan(p)}>
+              {t(`plan.${p}` as Key)}
+            </button>
+          ))}
+        </div>
+      )}
+      <p className="offer-includes">{t(`demo.pPlan${plan === 'web' ? 'Web' : plan === 'pro' ? 'Pro' : 'Store'}` as Key)}</p>
+      <div className="offer-price">
+        <b>{price}€</b>
+        <span>{t('demo.pPerMonth')}</span>
+        {was && <s aria-label={`${was}€`}>{was}€</s>}
+        {was && <em>−35%</em>}
+      </div>
+      <p className="offer-note">
+        {daysLeft !== null && <strong>{daysLeft === 1 ? t('demo.pDay1') : t('demo.pDays', { n: daysLeft })}. </strong>}
+        {t('demo.pNoActivation')}. {t('demo.pVat')}.
+      </p>
+      <a className="cta" href={cta} target="_blank" rel="noopener noreferrer">
+        {t('demo.pCta')} <ArrowRight size={18} weight="bold" aria-hidden />
+      </a>
+      <a className="cta cta-quiet" href={wa} target="_blank" rel="noopener noreferrer">
+        <ChatCircleText size={18} aria-hidden /> {t('demo.pWa')}
+      </a>
+      <p className="offer-by">{t('demo.pBy')}</p>
+    </section>
   );
 }

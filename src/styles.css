@@ -230,6 +230,18 @@ img { display: block; max-width: 100%; }
 .badge-brand { background: var(--brand-soft); color: var(--brand-text); }
 .badge-warn { background: color-mix(in srgb, var(--warn) 16%, var(--surface)); color: var(--warn); }
 
+/* ── trainer follow-ups: who to remind, renew or call back ─────────────────── */
+.avatar { flex: none; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; font-weight: 700; background: var(--brand-soft); color: var(--brand-text); }
+.app[data-template='energy'] .avatar { border-radius: 6px; }
+.follow-title { display: flex; align-items: center; gap: 8px; }
+.follow-count { height: 20px; padding: 0 8px; }
+.follow-lead { margin-right: 8px; font-weight: 800; color: var(--brand-text); }
+.follow-send { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 0 14px; border-radius: 999px; font-size: 14px; font-weight: 700; background: var(--brand); color: var(--on-brand); transition: transform 0.15s, background 0.2s; }
+.follow-send:active { transform: scale(0.96); }
+.follow-send.is-done { background: var(--surface-2); color: var(--muted); }
+.app[data-template='energy'] .follow-send { border-radius: 6px; }
+.follow-done .avatar { filter: grayscale(1); opacity: 0.7; }
+
 /* ── segmented ─────────────────────────────────────────────────────────────── */
 .segmented { display: flex; padding: 4px; gap: 4px; border-radius: var(--r-control); background: var(--surface-2); }
 .segmented-item { position: relative; flex: 1; min-height: 40px; border-radius: var(--r-control); font-weight: 600; font-size: 14px; color: var(--muted); }
@@ -369,13 +381,35 @@ img { display: block; max-width: 100%; }
   background: rgb(21 22 26 / 0.82); color: #edeef0; border: 1px solid rgb(255 255 255 / 0.14);
   backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 10px 28px -10px rgb(0 0 0 / 0.6);
 }
-.stage:has(.sheet-layer) .demo-fab { display: none; } /* never on top of an open sheet */
+.stage:has(.sheet-layer) .demo-fab, .stage:has(.sheet-layer) .demo-hint { display: none; } /* never on top of an open sheet */
 .stage:has(.sticky-cta) .demo-fab { bottom: calc(172px + env(safe-area-inset-bottom)); } /* nor on the booking button */
+.stage:has(.sticky-cta) .demo-hint { bottom: calc(228px + env(safe-area-inset-bottom)); }
 .stage:not(:has(.tabbar)) .demo-fab { bottom: calc(16px + env(safe-area-inset-bottom)); } /* no tab bar: the corner is free */
+.stage:not(:has(.tabbar)) .demo-hint { bottom: calc(72px + env(safe-area-inset-bottom)); }
 .panel-foot { margin-top: 26px; padding-top: 18px; border-top: 1px solid #25272e; }
+.panel-btn-solid { background: #edeef0; color: #15161a; }
+/* What the trainer sees last in the preview: price, and two ways to say yes. */
+.panel .offer { margin-top: 26px; padding: 18px; border-radius: 20px; background: #1b1d22; border: 1px solid #2c2f37; display: grid; gap: 12px; }
+.panel .offer p { margin: 0; }
+.offer-includes { color: #a1a4ad; font-size: 13px; }
+.offer-price { display: flex; align-items: baseline; gap: 8px; }
+.offer-price b { font-size: 46px; line-height: 1; letter-spacing: -0.035em; color: #edeef0; }
+.offer-price span { color: #a1a4ad; }
+.offer-price s { margin-left: 4px; color: #8b8f99; }
+.offer-price em { font-style: normal; font-size: 12px; font-weight: 700; padding: 3px 8px; border-radius: 7px; background: #edeef0; color: #15161a; }
+.panel .offer-note { font-size: 13px; color: #a1a4ad; }
+.offer-note strong { color: #edeef0; }
+.cta { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 54px; padding: 0 18px; border-radius: 16px; background: #edeef0; color: #15161a; font-weight: 700; font-size: 16px; text-decoration: none; }
+.cta-quiet { min-height: 46px; background: #23252c; color: #edeef0; font-size: 14px; }
+.panel .offer-by { text-align: center; font-size: 12px; color: #6f737d; }
+/* One nudge toward the trainer's panel, above the demo button. */
+.demo-hint { position: fixed; right: 12px; bottom: calc(148px + env(safe-area-inset-bottom)); z-index: 80; width: min(320px, calc(100vw - 24px)); padding: 14px; border-radius: 18px; background: rgb(21 22 26 / 0.94); color: #edeef0; border: 1px solid rgb(255 255 255 / 0.14); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 16px 36px -14px rgb(0 0 0 / 0.7); }
+.demo-hint p { margin: 0 0 10px; font-size: 14px; line-height: 1.4; }
+.demo-fab-hint { animation: fab-pulse 1.8s ease-out infinite; }
+@keyframes fab-pulse { 0% { box-shadow: 0 0 0 0 rgb(255 255 255 / 0.5), 0 10px 28px -10px rgb(0 0 0 / 0.6); } 70%, 100% { box-shadow: 0 0 0 14px rgb(255 255 255 / 0), 0 10px 28px -10px rgb(0 0 0 / 0.6); } }
 .demo-overlay { position: fixed; inset: 0; z-index: 90; background: rgb(0 0 0 / 0.6); display: flex; align-items: flex-end; }
 .demo-overlay .panel { width: 100%; max-height: 86dvh; border-radius: 24px 24px 0 0; }
-@media (min-width: 960px) { .demo-fab { display: none; } }
+@media (min-width: 960px) { .demo-fab, .demo-hint { display: none; } }
 
 /* ── trainer dashboard ─────────────────────────────────────────────────────── */
 .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
