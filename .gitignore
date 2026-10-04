@@ -6,3 +6,6 @@ dist/
 .netlify/
 .claude/
 *.log
+# Outreach trackers hold people's contact details: never commit them
+*outreach*.csv
+*tracker*.csv
