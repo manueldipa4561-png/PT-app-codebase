@@ -13,13 +13,13 @@ test('the offer prices are the list prices minus 35%, rounded to the euro', () =
 });
 
 test('during the offer the price is discounted and the list price is shown crossed out', () => {
-  assert.deepEqual(monthlyPrice('web', at('2026-10-01T12:00:00+02:00')), { price: 69, was: 106, daysLeft: 4 });
-  assert.deepEqual(monthlyPrice('pro', at('2026-10-04T23:30:00+02:00')), { price: 99, was: 152, daysLeft: 1 });
+  assert.deepEqual(monthlyPrice('web', at('2026-10-08T12:00:00+02:00')), { price: 69, was: 106, daysLeft: 4 });
+  assert.deepEqual(monthlyPrice('pro', at('2026-10-11T23:30:00+02:00')), { price: 99, was: 152, daysLeft: 1 });
 });
 
-test('the offer includes all of Sunday 4 October and ends at midnight', () => {
-  assert.equal(monthlyPrice('web', at('2026-10-04T23:59:59+02:00')).price, 69);
-  assert.deepEqual(monthlyPrice('web', at('2026-10-05T00:00:00+02:00')), { price: 106, was: null, daysLeft: null });
+test('the offer includes all of Sunday 11 October and ends at midnight', () => {
+  assert.equal(monthlyPrice('web', at('2026-10-11T23:59:59+02:00')).price, 69);
+  assert.deepEqual(monthlyPrice('web', at('2026-10-12T00:00:00+02:00')), { price: 106, was: null, daysLeft: null });
   assert.equal(monthlyPrice('store', at('2027-01-15T10:00:00+01:00')).price, 198);
 });
 
