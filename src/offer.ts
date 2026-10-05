@@ -6,8 +6,8 @@ import type { Plan } from './domain.ts';
 export const LIST_PRICE: Record<Plan, number> = { web: 106, pro: 152, store: 198 };
 export const OFFER_PRICE: Record<Plan, number> = { web: 69, pro: 99, store: 129 };
 export const OFFER_DISCOUNT = 35;
-/** The offer runs through Sunday 4 October 2026 (Rome time, still summer time then). */
-export const OFFER_ENDS = Date.parse('2026-10-05T00:00:00+02:00');
+/** The offer runs through Sunday 11 October 2026 (Rome time, still summer time then). */
+export const OFFER_ENDS = Date.parse('2026-10-12T00:00:00+02:00');
 
 /** Where "Voglio la mia app" leads: the form, with what the trainer chose in the preview. */
 export const FORM_URL = 'https://puntoduestudio.it/modulo-trainer';
